@@ -14,7 +14,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-
 #include "TensorImpl_base.h"
 
 namespace TinyTorch {
@@ -384,6 +383,17 @@ class TensorImpl {
   // dot
   TensorImpl dot(const TensorImpl &t) const { return dot(*this, t); }
   static TensorImpl dot(const TensorImpl &a, const TensorImpl &b);
+
+  TensorImpl flashattentionv2(const TensorImpl &t,const TensorImpl &c, int32_t head)
+                        const { return flashattentionv2(*this, t, c, head); }
+
+  static TensorImpl flashattentionv2(const TensorImpl &q, const TensorImpl &k,
+       const TensorImpl &v, int32_t head);
+
+  TensorImpl attention(const TensorImpl &t,const TensorImpl &c, int32_t head)
+                      const { return flashattentionv2(*this, t, c, head); }
+  static TensorImpl attention(const TensorImpl &q, const TensorImpl &k,
+     const TensorImpl &v, int32_t head);
 
   // matmul
   TensorImpl matmul(const TensorImpl &t) const { return matmul(*this, t); }

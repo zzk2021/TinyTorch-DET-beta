@@ -9,10 +9,12 @@
 #include <optional>
 
 #include "Tensor.h"
-
+#include "Enums.h"
 namespace TinyTorch::nn {
 
 class Module {
+
+
  public:
   virtual ~Module() = default;
   virtual std::vector<Tensor *> parameters();
@@ -22,7 +24,7 @@ class Module {
 
   virtual Tensor forward(Tensor &x) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2) { return {}; }
-
+  virtual Tensor forward(Tensor &x1, Tensor &x2, Tensor &x3) { return {}; }
   template <typename... Args>
   Tensor operator()(Args &&...args) {
     return forward(std::forward<Args>(args)...);
@@ -100,10 +102,20 @@ class Sequential : public Module {
   std::vector<std::shared_ptr<Module>> modules_;
 };
 
+
+class FlashSelfAttention : public Module {
+ public:
+  explicit FlashSelfAttention(int32_t inFeatures, int32_t head = 8, AttentionMethod method = AttentionMethod::FalshAttentionV2);
+  Tensor forward(Tensor &Q, Tensor &K, Tensor &V) override;
+ private:
+  int32_t inFeatures_;
+  int32_t head_;
+  AttentionMethod method_;
+};
+
 class Linear : public Module {
  public:
   Linear(int32_t inFeatures, int32_t outFeatures, bool bias = true);
-
   Tensor forward(Tensor &input) override;
   std::vector<Tensor *> parameters() override;
   std::vector<Tensor *> states() override;

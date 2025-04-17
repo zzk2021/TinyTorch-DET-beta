@@ -1134,4 +1134,11 @@ void TensorOpsCPU::gemm(float* c, const float* a, const float* b, int32_t m,
   }
 }
 
+TensorImpl TensorOpsCPU::flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
+               const TensorImpl& V , int32_t head) {
+  TensorImpl retTensor ;
+  return retTensor;
+}
 }  // namespace TinyTorch
+
+

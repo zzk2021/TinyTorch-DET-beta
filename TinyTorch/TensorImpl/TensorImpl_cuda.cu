@@ -14,7 +14,6 @@
 #include "TensorImpl_cpu.h"
 #include "TensorImpl_cuda.cuh"
 #include "TensorImpl_cuda.inc"
-
 namespace TinyTorch {
 
 const char* curandGetErrorString(curandStatus_t status);
@@ -1113,7 +1112,6 @@ TensorImpl TensorOpsCUDA::triangle(const TensorImpl& t, int32_t diagonal,
   CUDA_KERNEL_CHECK();
   return ret;
 }
-
 
 void TensorOpsCUDA::gemm(float* c, const float* a, const float* b, int32_t m,
                          int32_t k, int32_t n, bool transA, bool transB) {

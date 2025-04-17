@@ -25,10 +25,12 @@ enum FunctionType {
   Function_Pow,
   Function_PowScalar,
   Function_Sum,
+  Function_Max,
   Function_Relu,
   Function_Flatten,
   Function_UnFlatten,
   Function_FlashAttention,
+  Function_Attention,
   Function_Squeeze,
   Function_Unsqueeze,
   Function_Reshape,
@@ -46,7 +48,6 @@ enum FunctionType {
 class Function;
 class TensorImpl;
 class Tensor;
-
 class Function : public std::enable_shared_from_this<Function> {
  public:
   static Tensor add(const Tensor& a, const Tensor& b);
@@ -58,7 +59,7 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor pow(const Tensor& a, const float& b);
   static Tensor pow(const Tensor& a, const Tensor& b);
   static Tensor sum(const Tensor& a);
-
+  static Tensor max(const Tensor& a, int32_t dim_ ,bool keepdim);
   static Tensor relu(const Tensor& input);
 
   static Tensor flatten(const Tensor& input, int32_t startDim, int32_t endDim);
@@ -75,7 +76,8 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor linear(const Tensor& input, const Tensor& weight,
                        const Tensor& bias);
 
-  static Tensor flashattention(const Tensor& input, int32_t head);
+  static Tensor flashattention(const Tensor& Q,const Tensor& K,
+   const Tensor& V, int32_t head);
 
   static Tensor dropout(const Tensor& input, float p = 0.5f,
                         bool training = true);
@@ -197,6 +199,17 @@ class FuncSum : public Function {
   DEFINE_FUNCTION_MEMBERS(Function_Sum)
 };
 
+class FuncMax : public Function {
+ public:
+  FuncMax(int32_t dim, bool keep_dim)
+    : dim_(dim), keep_dim_(keep_dim) {}
+  DEFINE_FUNCTION_MEMBERS(Function_Max)
+ private:
+  int32_t dim_;
+  bool keep_dim_;
+  TensorImpl maxIndices_;
+};
+
 class FuncRelu : public Function {
  public:
   DEFINE_FUNCTION_MEMBERS(Function_Relu)
@@ -259,10 +272,18 @@ class FuncLinear : public Function {
 
 class FuncFlashAttention : public Function {
  public:
- explicit FuncFlashAttention(int32_t head): head_(head) {}
+  explicit FuncFlashAttention(int32_t head): head_(head){}
   DEFINE_FUNCTION_MEMBERS(Function_FlashAttention)
  private:
- int32_t head_;
+  int32_t head_;
+};
+
+class FuncAttention : public Function {
+ public:
+  explicit FuncAttention(int32_t head): head_(head){}
+  DEFINE_FUNCTION_MEMBERS(Function_Attention)
+ private:
+  int32_t head_;
 };
 
 class FuncDropout : public Function {

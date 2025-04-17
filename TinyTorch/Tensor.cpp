@@ -347,4 +347,20 @@ void AutogradMeta::buildBackwardGraph() {
   }
 }
 
+void Tensor::print() const {
+  const auto& shape = this->shape();
+  size_t rows = shape[0];
+  size_t cols = shape[1];
+  for (size_t i = 0; i < (rows < 1 ? rows : 1); ++i) {
+    printf("  [");
+    for (size_t j = 0; j < (cols < 10 ? cols : 10); ++j) {
+      printf("%f", this->toList()[i * cols + j]);
+      if (j < cols - 1) {
+        printf(", ");
+      }
+    }
+    printf("]\n");
+  }
+}
+
 }  // namespace TinyTorch

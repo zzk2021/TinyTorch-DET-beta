@@ -37,6 +37,7 @@ class Tensor {
   static Tensor linspace(float start, float end, int steps,
                          bool requiresGrad = false);
 
+  void print() const;
   bool empty() const { return data_->empty(); }
 
   int32_t dim() const { return data_->dim(); }
@@ -84,6 +85,7 @@ class Tensor {
   void operator-=(const float &other);
   void operator*=(const float &other);
   void operator/=(const float &other);
+
 
   Tensor sin() const;
   Tensor cos() const;

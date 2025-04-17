@@ -82,6 +82,10 @@ Tensor Function::sum(const Tensor& a) {
   return std::make_shared<FuncSum>()->callForward({&a});
 }
 
+Tensor Function::max(const Tensor& a, int32_t dim ,bool keepdim) {
+  return std::make_shared<FuncMax>(dim, keepdim)->callForward({&a});
+}
+
 Tensor Function::relu(const Tensor& input) {
   return std::make_shared<FuncRelu>()->callForward({&input});
 }
@@ -108,8 +112,8 @@ Tensor Function::reshape(const Tensor& input, const Shape& shape) {
   return std::make_shared<FuncReshape>(shape)->callForward({&input});
 }
 
-Tensor Function::flashattention(const Tensor& input, int32_t head) {
-  return std::make_shared<FuncFlashAttention>(head)->callForward({&input});
+Tensor Function::flashattention(const Tensor& Q,const Tensor& K,const Tensor& V, int32_t head) {
+  return std::make_shared<FuncFlashAttention>(head)->callForward({&Q, &K, &V});
 }
 
 Tensor Function::linear(const Tensor& input, const Tensor& weight,
@@ -352,6 +356,58 @@ std::vector<TensorImpl> FuncPowScalar::backward(const TensorImpl& grad) {
   return ret;
 }
 
+TensorImpl FuncMax::forward(const std::vector<const Tensor*>& inputs) {
+  saveForBackward(inputs);
+  auto maxRet = TensorImpl::max(inputs[0]->data(),dim_, keep_dim_);
+  maxIndices_ = maxRet.second;
+  return maxRet.first;
+}
+
+std::vector<TensorImpl> FuncMax::backward(const TensorImpl& grad) {
+  const auto& shape = grad.shape();
+  size_t rows = shape[0];
+  size_t cols = shape[1];
+  printf("grad:\n");
+  for (size_t i = 0; i < rows; ++i) {
+    printf("  [");
+    for (size_t j = 0; j < cols; ++j) {
+      printf("%f", grad.data()[i * cols + j]);
+      if (j < cols - 1) {
+        printf(", ");
+      }
+    }
+    printf("]\n");
+  }
+  const auto& savedTensors = getSavedTensors();
+  const auto& input_shape = savedTensors[0].shape();
+
+  const bool has_batch = (input_shape.size() > 1 && dim_ != 0) ||              \
+    (input_shape.size() == 1 && dim_ == 0);
+
+  TensorImpl input_grad = TensorImpl::zeros(input_shape, grad.device());
+
+  auto adjusted_grad = grad;
+  if (!keep_dim_) {
+    Shape unsqueeze_shape = input_shape;
+    unsqueeze_shape.insert(unsqueeze_shape.begin() + dim_, 1);
+    adjusted_grad.reshape_(unsqueeze_shape);
+  }
+  auto gradIdx = TensorImpl::arange(0,                           \
+    (float)grad.numel(), 1.f, grad.device());
+
+  input_grad.indexPut_({gradIdx, maxIndices_}, adjusted_grad);
+
+  if (has_batch) {
+    input_grad.reshape_(input_shape);
+  }
+
+  std::vector<TensorImpl> ret;
+  if (savedTensors[0].isRequiresGrad()) {
+    ret.push_back(std::move(input_grad));
+  }
+  return ret;
+}
+
 TensorImpl FuncSum::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   return TensorImpl::sum(inputs[0]->data());
@@ -456,6 +512,18 @@ std::vector<TensorImpl> FuncReshape::backward(const TensorImpl& grad) {
   return ret;
 }
 
+TensorImpl FuncFlashAttention::forward(const std::vector<const Tensor*>& inputs) {
+  saveForBackward(inputs);
+  auto output = TensorImpl::flashattentionv2(inputs[0]->data() ,
+    inputs[1]->data() , inputs[2]->data(), head_);
+  return output;
+}
+
+std::vector<TensorImpl> FuncFlashAttention::backward(const TensorImpl& grad) {
+  std::vector<TensorImpl> ret;
+  return ret;
+}
+
 TensorImpl FuncLinear::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   auto output = TensorImpl::matmulTrans(inputs[0]->data(), inputs[1]->data(),
@@ -501,6 +569,8 @@ std::vector<TensorImpl> FuncDropout::backward(const TensorImpl& grad) {
   }
   return ret;
 }
+
+
 
 TensorImpl FuncSoftmax::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
@@ -564,6 +634,8 @@ TensorImpl FuncMaxPool2D::forward(const std::vector<const Tensor*>& inputs) {
   ret.reshape_({batch, channels, outH, outW});
   return ret;
 }
+
+
 
 std::vector<TensorImpl> FuncMaxPool2D::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();

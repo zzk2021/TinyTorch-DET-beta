@@ -17,8 +17,6 @@ endif ()
 #set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --keep --keep-dir tmp -gencode arch=compute_50,code=sm_50 -v")
 add_subdirectory(TinyTorch)
 add_subdirectory(demo)
-add_subdirectory(flash_attention_test)
-
 option(BUILD_TEST "Whether or not to build the tests" ON)
 if (${BUILD_TEST})
     message(STATUS "Building tests")

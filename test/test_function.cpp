@@ -103,6 +103,17 @@ TEST(TEST_Function, func_sum2) {
   EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(1, 1, 1));
 }
 
+TEST(TEST_Function, func_max) {
+  Tensor x({
+    {1.0f, 2.0f, 3.0f},
+    {3.0f,2.0f,1.0f},
+    {2.0f,3.0f,1.0f}}, true);
+  auto y = Function::max(x, 1, true);
+  EXPECT_THAT(y.data().toList(), ElementsAre(3., 3., 3.));
+  y.backward();
+  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 1, 0, 0, 0, 1, 0));
+}
+
 TEST(TEST_Function, func_linear) {
   Tensor x({{-0.3089f, 0.5301f, -0.0245f}, {1.5852f, 0.8954f, 0.7485f}}, true);
   Tensor w({{0.8397f, 1.7990f, -0.2738f}, {-0.8910f, -0.6746f, 0.3419f}}, true);

@@ -196,8 +196,9 @@ typedef enum ShapeCompatible_ {
                                                                                \
   /* matmul */                                                                 \
   _H void gemm(float* c, const float* a, const float* b, int32_t m, int32_t k, \
-               int32_t n, bool transA, bool transB) _T;
-
+               int32_t n, bool transA, bool transB) _T;                        \
+  _H TensorImpl flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
+               const TensorImpl& V , int32_t head) _T;
 class TensorImpl;
 
 class TensorOperations {

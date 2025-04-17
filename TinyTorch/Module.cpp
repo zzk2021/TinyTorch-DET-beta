@@ -10,7 +10,7 @@
 
 #include "Function.h"
 #include "Init.h"
-
+#include "Enums.h"
 namespace TinyTorch::nn {
 
 std::vector<Tensor *> Module::parameters() {
@@ -101,6 +101,20 @@ void Sequential::setTraining(bool mode) {
   }
 }
 
+FlashSelfAttention::FlashSelfAttention(int32_t inFeatures, int32_t head, AttentionMethod method)
+    : inFeatures_(inFeatures),  head_(head), method_(method) {
+}
+
+Tensor FlashSelfAttention::forward(Tensor &Q, Tensor &K, Tensor &V) {
+  if (method_ == AttentionMethod::FalshAttentionV2) {
+    return Function::flashattention(Q,K,V,head_);
+  }
+  else if (method_ == AttentionMethod::Attention){
+    return Function::flashattention(Q,K,V,head_);
+  }
+}
+
+
 Linear::Linear(int32_t inFeatures, int32_t outFeatures, bool bias)
     : inFeatures_(inFeatures), outFeatures_(outFeatures), useBias_(bias) {
   weights_ = Tensor::shape({outFeatures, inFeatures}, true);
@@ -120,6 +134,8 @@ std::vector<Tensor *> Linear::parameters() {
   }
   return {&weights_};
 }
+
+
 
 std::vector<Tensor *> Linear::states() { return parameters(); }
 

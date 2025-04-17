@@ -59,7 +59,6 @@ class TensorOpsCUDA : public TensorOperations {
   void opSingle_(TensorImpl &t) const;
   template <typename OP>
   TensorImpl opSingle(const TensorImpl &t) const;
-  TensorImpl flash_attention_(const TensorImpl& Q, const TensorImpl& K, const TensorImpl& V);
   // op pair
   template <typename OP>
   TensorImpl opPair(const TensorImpl &a, const TensorImpl &b) const;
@@ -112,7 +111,6 @@ class TensorOpsCUDA : public TensorOperations {
   // transpose
   static void transpose2D(float *out, const float *in, int32_t width,
                           int32_t height);
-
  protected:
   int32_t cudaDeviceIdx_;
   size_t blockSize_;

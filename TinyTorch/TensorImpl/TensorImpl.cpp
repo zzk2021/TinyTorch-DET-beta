@@ -12,6 +12,7 @@
 #include "TensorImpl_cpu.h"
 #ifdef USE_CUDA
 #include "TensorImpl_cuda.cuh"
+#include "../Enums.h"
 #endif
 
 namespace TinyTorch {
@@ -1506,6 +1507,70 @@ TensorImpl TensorImpl::matmul(const TensorImpl &a, const TensorImpl &b) {
   }
 
   return retTensor;
+}
+
+TensorImpl TensorImpl::flashattentionv2(const TensorImpl &q, const TensorImpl &k,const TensorImpl &v, int32_t head) {
+  // fast path
+  TENSOR_CHECK_DEVICE_RET(q, k, {});
+  TENSOR_CHECK_DEVICE_RET(k, v, {});
+
+  const auto &q_shape = q.shape();
+  const auto &k_shape = k.shape();
+  const auto &v_shape = v.shape();
+
+  if (q.dimCount_ < 2 || k.dimCount_ < 2 || v.dimCount_ < 2) {
+    TensorOperations::error(__FUNCTION__, TensorError_InvalidShape);
+    return {};
+  }
+
+  if (q_shape[q_shape.size() - 1] != k_shape[k_shape.size() - 1]) {
+    TensorOperations::error(__FUNCTION__, TensorError_ShapeNotAligned);
+    return {};
+  }
+
+  if (v_shape[v_shape.size() - 2] != k_shape[k_shape.size() - 2]) {
+    TensorOperations::error(__FUNCTION__, TensorError_ShapeNotAligned);
+    return {};
+  }
+  TensorImpl ret = q.ops_->flash_attention_(q, k, v, head);
+  return ret;
+}
+
+TensorImpl TensorImpl::attention(const TensorImpl &q, const TensorImpl &k,const TensorImpl &v, int32_t head) {
+  // fast path
+  TENSOR_CHECK_DEVICE_RET(q, k, {});  // 检查 Q 和 K 是否在同一个设备上
+  TENSOR_CHECK_DEVICE_RET(k, v, {});  // 检查 K 和 V 是否在同一个设备上
+
+  const auto &q_shape = q.shape();
+  const auto &k_shape = k.shape();
+  const auto &v_shape = v.shape();
+
+  if (q.dimCount_ < 2 || k.dimCount_ < 2 || v.dimCount_ < 2) {
+    TensorOperations::error(__FUNCTION__, TensorError_InvalidShape);
+    return {};
+  }
+
+  if (q_shape[q_shape.size() - 1] != k_shape[k_shape.size() - 1]) {
+    TensorOperations::error(__FUNCTION__, TensorError_ShapeNotAligned);
+    return {};
+  }
+
+  if (v_shape[v_shape.size() - 2] != k_shape[k_shape.size() - 2]) {
+    TensorOperations::error(__FUNCTION__, TensorError_ShapeNotAligned);
+    return {};
+  }
+  const int d = q.shape()[3];
+  TensorImpl scores = q.matmulTrans(k, false, true);  // Q @ K^T
+  scores /= std::sqrt(static_cast<float>(d));
+  int32_t dim_ = scores.dimCount_;
+
+  auto max = TensorImpl::max(scores, dim_, true).first;
+  auto shifted = scores - max;
+  auto exp = TensorImpl::exp(shifted);
+  auto sumExp = TensorImpl::sum(exp, dim_, true);
+  auto attention_weights = exp / sumExp;
+  TensorImpl ret = attention_weights.matmul(v);
+  return ret;
 }
 
 TensorImpl TensorImpl::matmulTrans(const TensorImpl &a, const TensorImpl &b,

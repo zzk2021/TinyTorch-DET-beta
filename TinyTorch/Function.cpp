@@ -23,6 +23,7 @@ std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     FUNC_ENUM_TO_STRING(Function_Sub),
     FUNC_ENUM_TO_STRING(Function_Mul),
     FUNC_ENUM_TO_STRING(Function_Div),
+    FUNC_ENUM_TO_STRING(Function_Max),
     FUNC_ENUM_TO_STRING(Function_Sin),
     FUNC_ENUM_TO_STRING(Function_Cos),
     FUNC_ENUM_TO_STRING(Function_Pow),
@@ -364,46 +365,27 @@ TensorImpl FuncMax::forward(const std::vector<const Tensor*>& inputs) {
 }
 
 std::vector<TensorImpl> FuncMax::backward(const TensorImpl& grad) {
-  const auto& shape = grad.shape();
-  size_t rows = shape[0];
-  size_t cols = shape[1];
-  printf("grad:\n");
-  for (size_t i = 0; i < rows; ++i) {
-    printf("  [");
-    for (size_t j = 0; j < cols; ++j) {
-      printf("%f", grad.data()[i * cols + j]);
-      if (j < cols - 1) {
-        printf(", ");
-      }
-    }
-    printf("]\n");
-  }
+
   const auto& savedTensors = getSavedTensors();
-  const auto& input_shape = savedTensors[0].shape();
-
-  const bool has_batch = (input_shape.size() > 1 && dim_ != 0) ||              \
-    (input_shape.size() == 1 && dim_ == 0);
-
-  TensorImpl input_grad = TensorImpl::zeros(input_shape, grad.device());
-
-  auto adjusted_grad = grad;
-  if (!keep_dim_) {
-    Shape unsqueeze_shape = input_shape;
-    unsqueeze_shape.insert(unsqueeze_shape.begin() + dim_, 1);
-    adjusted_grad.reshape_(unsqueeze_shape);
-  }
-  auto gradIdx = TensorImpl::arange(0,                           \
-    (float)grad.numel(), 1.f, grad.device());
-
-  input_grad.indexPut_({gradIdx, maxIndices_}, adjusted_grad);
-
-  if (has_batch) {
-    input_grad.reshape_(input_shape);
-  }
-
+  assert(savedTensors.size() == 1);
   std::vector<TensorImpl> ret;
+  const auto& inputShape = savedTensors[0].data().shape();
+  std::vector<int32_t> Indices_tuple = {0,0};
+  auto gradInput = TensorImpl::zeros(inputShape, grad.device());
+  auto maxIndices = maxIndices_;
+  int maxIndex = maxIndices.shape().size();
+  printf("maxIndices\n");
+  for (int i = 0; i < maxIndex; ++i) {
+      printf("%d", maxIndices.shape()[i]);
+  }
+  //TensorImpl::reshape(maxIndices, );
+  for (int32_t i =0; i < inputShape[dim_]; ++i) {
+    Indices_tuple[0] = i;
+    Indices_tuple[1] = static_cast<int32_t>(maxIndices.data()[i]);
+    gradInput.indexPut_({Indices_tuple}, grad.data()[i]);
+  }
   if (savedTensors[0].isRequiresGrad()) {
-    ret.push_back(std::move(input_grad));
+    ret.push_back(gradInput);
   }
   return ret;
 }

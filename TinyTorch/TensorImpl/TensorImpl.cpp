@@ -1098,8 +1098,10 @@ void TensorImpl::indexPut_(const std::vector<int32_t> &indices, float val) {
   ops_->fillConstant_(&data_[dataIdx], val, dimStride);
 }
 
+
+
 void TensorImpl::indexPut_(const std::vector<int32_t> &indices,
-                           const TensorImpl &val) {
+     const TensorImpl &val) {
   TENSOR_CHECK_EMPTY_RET(*this, );
   cow();
   auto len = (int32_t)indices.size();

@@ -41,6 +41,7 @@ typedef std::vector<int32_t> Shape;
 typedef std::vector<float> Array1d;
 typedef std::vector<std::vector<float>> Array2d;
 typedef std::vector<std::vector<std::vector<float>>> Array3d;
+typedef std::vector<std::vector<std::vector<std::vector<float>>>> Array4d;
 
 typedef enum TensorError_ {
   TensorError_None = 0,

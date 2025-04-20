@@ -25,6 +25,7 @@ class Tensor {
   explicit Tensor(const Array1d &values1d, bool requiresGrad = false);
   explicit Tensor(const Array2d &values2d, bool requiresGrad = false);
   explicit Tensor(const Array3d &values3d, bool requiresGrad = false);
+  explicit Tensor(const Array4d &values4d, bool requiresGrad = false);
 
   static Tensor shape(const Shape &shape, bool requiresGrad = false);
   static Tensor scalar(const float &value, bool requiresGrad = false);

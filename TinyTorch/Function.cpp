@@ -370,19 +370,39 @@ std::vector<TensorImpl> FuncMax::backward(const TensorImpl& grad) {
   assert(savedTensors.size() == 1);
   std::vector<TensorImpl> ret;
   const auto& inputShape = savedTensors[0].data().shape();
-  std::vector<int32_t> Indices_tuple = {0,0};
+  std::vector<int32_t> Indices_tuple;
   auto gradInput = TensorImpl::zeros(inputShape, grad.device());
   auto maxIndices = maxIndices_;
-  int maxIndex = maxIndices.shape().size();
-  printf("maxIndices\n");
-  for (int i = 0; i < maxIndex; ++i) {
-      printf("%d", maxIndices.shape()[i]);
-  }
-  //TensorImpl::reshape(maxIndices, );
-  for (int32_t i =0; i < inputShape[dim_]; ++i) {
-    Indices_tuple[0] = i;
-    Indices_tuple[1] = static_cast<int32_t>(maxIndices.data()[i]);
-    gradInput.indexPut_({Indices_tuple}, grad.data()[i]);
+    int32_t elemSize = maxIndices.numel();
+    const auto& maxIndicesShape = maxIndices.shape();
+    std::vector<int32_t> indices(maxIndicesShape.size(), 0);
+
+    std::vector<int32_t> strides(maxIndicesShape.size(), 1);
+    for (int i = maxIndicesShape.size() - 2; i >= 0; --i) {
+        strides[i] = strides[i + 1] * maxIndicesShape[i + 1];
+    }
+
+
+    for (int32_t n = 0; n < elemSize; ++n) {
+
+        std::vector<int32_t> coord(maxIndicesShape.size());
+        int32_t remainder = n;
+        for (size_t dim = 0; dim < maxIndicesShape.size(); ++dim) {
+            coord[dim] = remainder / strides[dim];
+            remainder = remainder % strides[dim];
+        }
+
+        int32_t maxIndex = maxIndices.data()[n];
+        std::vector<int32_t> gradInputIndices;
+
+            for (size_t dim = 0; dim < coord.size(); ++dim) {
+                if (dim == dim_)
+                    gradInputIndices.push_back(maxIndex);
+                else
+                    gradInputIndices.push_back(coord[dim]);
+            }
+
+    gradInput.indexPut_(gradInputIndices, grad.data()[n]);
   }
   if (savedTensors[0].isRequiresGrad()) {
     ret.push_back(gradInput);

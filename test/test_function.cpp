@@ -9,6 +9,13 @@
 #include "test.h"
 
 using namespace TinyTorch;
+TEST(TEST_Function, func_upsample) {
+  Tensor a({{{1, 2},{1, 5}},{{1, 2},{1, 7}},{{1, 2},{1, 9}}}, true);
+  auto y = Function::upsample(a, 2);
+  EXPECT_THAT(y.data().toList(), ElementsAre(1,1,2,2,1,1,5,5,1,1,2,2,1,1,7,7,1,1,2,2,1,1,9,9));
+  y.backward(Tensor::onesLike(y));
+  EXPECT_THAT(a.getGrad().data().toList(), ElementsAre(4,4,4,4,4,4,4,4,4,4,4,4));
+}
 
 TEST(TEST_Function, func_add) {
   Tensor a({1, 2, 3}, true);

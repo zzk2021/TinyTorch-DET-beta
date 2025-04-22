@@ -30,7 +30,7 @@ enum FunctionType {
   Function_Flatten,
   Function_UnFlatten,
   Function_FlashAttention,
-  Function_Upsample,
+  Function_UpSample,
   Function_Attention,
   Function_Squeeze,
   Function_Unsqueeze,

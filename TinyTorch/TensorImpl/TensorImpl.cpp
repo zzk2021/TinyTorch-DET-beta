@@ -1049,9 +1049,6 @@ TensorImpl TensorImpl::permute(const std::vector<int32_t> &dims) const {
   return ops_->permute(*this, retDims);
 }
 
-
-
-
 TensorImpl TensorImpl::index(const std::vector<int32_t> &indices) const {
   TENSOR_CHECK_EMPTY_RET(*this, {});
   auto len = (int32_t)indices.size();

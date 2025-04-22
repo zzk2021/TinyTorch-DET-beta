@@ -31,7 +31,10 @@ Tensor::Tensor(const Array3d &values3d, bool requiresGrad)
     : data_(std::make_shared<TensorImpl>(values3d)) {
   initAutograd(requiresGrad);
 }
-
+Tensor::Tensor(const Array4d &values4d, bool requiresGrad)
+    : data_(std::make_shared<TensorImpl>(values4d)) {
+  initAutograd(requiresGrad);
+}
 Tensor Tensor::shape(const Shape &shape, bool requiresGrad) {
   auto ret = TensorImpl::shape(shape);
   return Tensor(std::move(ret), requiresGrad);

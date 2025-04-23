@@ -134,7 +134,7 @@ TensorImpl::TensorImpl(const Array3d &values3d, Device device) {
 TensorImpl::TensorImpl(const Array4d &values4d, Device device) {
   device_ = device;
   shape_ = {(int32_t)values4d.size(), (int32_t)values4d[0].size(),
-            (int32_t)values4d[0][0].size()};
+            (int32_t)values4d[0][0].size(),(int32_t)values4d[0][0][0].size()};
   initMeta();
   initData();
   for (int32_t idx = 0; idx < shape_[0]; idx++) {

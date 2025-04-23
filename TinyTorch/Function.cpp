@@ -5,7 +5,7 @@
  */
 
 #include "Function.h"
-
+#include <numeric>
 #include <cassert>
 #include <set>
 #include <unordered_map>
@@ -34,6 +34,7 @@ std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     FUNC_ENUM_TO_STRING(Function_UnFlatten),
     FUNC_ENUM_TO_STRING(Function_FlashAttention),
     FUNC_ENUM_TO_STRING(Function_UpSample),
+    FUNC_ENUM_TO_STRING(Function_ConCat),
     FUNC_ENUM_TO_STRING(Function_Squeeze),
     FUNC_ENUM_TO_STRING(Function_Unsqueeze),
     FUNC_ENUM_TO_STRING(Function_Reshape),
@@ -55,6 +56,10 @@ Tensor Function::upsample(const Tensor& input, int32_t scale_factor) {
 
 Tensor Function::add(const Tensor& a, const Tensor& b) {
   return std::make_shared<FuncAdd>()->callForward({&a, &b});
+}
+
+Tensor Function::concat(const Tensor& a, const Tensor& b, int32_t dim) {
+  return std::make_shared<FuncConCat>(dim)->callForward({&a, &b});
 }
 
 Tensor Function::sub(const Tensor& a, const Tensor& b) {
@@ -311,6 +316,77 @@ std::vector<TensorImpl> FuncUpSample::backward(const TensorImpl& grad) {
     return ret;
 }
 
+TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {
+    saveForBackward(inputs);
+
+    if (inputs.size() != 2) {
+        throw std::invalid_argument("ConCat requires exactly 2 input tensors");
+    }
+
+    const Tensor& t1 = *inputs[0];
+    const Tensor& t2 = *inputs[1];
+    const auto& shape1 = t1.data().shape();
+    const auto& shape2 = t2.data().shape();
+
+    if (shape1.size() != shape2.size()) {
+        throw std::runtime_error("All inputs must have the same number of dimensions");
+    }
+
+    const int32_t concat_dim = dim_;  // 假设私有成员变量dim_存储拼接维度
+    const int32_t ndims = shape1.size();
+
+    if (concat_dim < 0 || concat_dim >= ndims) {
+        throw std::runtime_error("Invalid concatenation dimension");
+    }
+
+    for (int32_t i = 0; i < ndims; ++i) {
+        if (i != concat_dim && shape1[i] != shape2[i]) {
+            throw std::runtime_error("Non-concat dimensions must be equal");
+        }
+    }
+
+    std::vector<int32_t> output_shape = shape1;
+    output_shape[concat_dim] += shape2[concat_dim];
+
+    TensorImpl output = TensorImpl::zeros(output_shape);
+    const size_t elem_size = sizeof(int32_t);
+    auto* out_ptr = output.data();
+    const auto* in1_ptr = t1.data().data();
+    const auto* in2_ptr = t2.data().data();
+
+    const size_t outer_size = std::accumulate(shape1.begin(), shape1.begin() + concat_dim,
+                                            1, std::multiplies<int32_t>());
+    const size_t inner_size = std::accumulate(shape1.begin() + concat_dim + 1, shape1.end(),
+                                            1, std::multiplies<int32_t>());
+    const size_t copy_size1 = shape1[concat_dim] * inner_size * elem_size;
+    const size_t copy_size2 = shape2[concat_dim] * inner_size * elem_size;
+
+    for (size_t i = 0; i < outer_size; ++i) {
+
+        memcpy(out_ptr, in1_ptr, copy_size1);
+        in1_ptr += copy_size1 / elem_size;
+        out_ptr += copy_size1 / elem_size;
+
+        memcpy(out_ptr, in2_ptr, copy_size2);
+        in2_ptr += copy_size2 / elem_size;
+        out_ptr += copy_size2 / elem_size;
+    }
+
+    return output;
+}
+
+std::vector<TensorImpl> FuncConCat::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  std::vector<TensorImpl> ret;
+  if (savedTensors[0].isRequiresGrad()) {
+    ret.push_back(grad);
+  }
+  if (savedTensors[1].isRequiresGrad()) {
+    ret.push_back(grad);
+  }
+  return ret;
+}
+
 TensorImpl FuncAdd::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   return inputs[0]->data() + inputs[1]->data();
@@ -453,39 +529,39 @@ TensorImpl FuncMax::forward(const std::vector<const Tensor*>& inputs) {
 std::vector<TensorImpl> FuncMax::backward(const TensorImpl& grad) {
 
   const auto& savedTensors = getSavedTensors();
-  assert(savedTensors.size() == 1);
   std::vector<TensorImpl> ret;
-  const auto& inputShape = savedTensors[0].data().shape();
-  std::vector<int32_t> Indices_tuple;
-  auto gradInput = TensorImpl::zeros(inputShape, grad.device());
-  auto maxIndices = maxIndices_;
-    int32_t elemSize = maxIndices.numel();
-    const auto& maxIndicesShape = maxIndices.shape();
-    std::vector<int32_t> indices(maxIndicesShape.size(), 0);
-    std::vector<int32_t> strides(maxIndicesShape.size(), 1);
-    for (int i = maxIndicesShape.size() - 2; i >= 0; --i) {
-        strides[i] = strides[i + 1] * maxIndicesShape[i + 1];
-    }
-    for (int32_t n = 0; n < elemSize; ++n) {
-        std::vector<int32_t> coord(maxIndicesShape.size());
-        int32_t remainder = n;
-        for (size_t dim = 0; dim < maxIndicesShape.size(); ++dim) {
-            coord[dim] = remainder / strides[dim];
-            remainder = remainder % strides[dim];
+  if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
+      assert(savedTensors.size() == 1);
+      const auto& inputShape = savedTensors[0].data().shape();
+      std::vector<int32_t> Indices_tuple;
+      auto gradInput = TensorImpl::zeros(inputShape, grad.device());
+      auto maxIndices = maxIndices_;
+        int32_t elemSize = maxIndices.numel();
+        const auto& maxIndicesShape = maxIndices.shape();
+        std::vector<int32_t> indices(maxIndicesShape.size(), 0);
+        std::vector<int32_t> strides(maxIndicesShape.size(), 1);
+        for (int i = maxIndicesShape.size() - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * maxIndicesShape[i + 1];
         }
-        int32_t maxIndex = maxIndices.data()[n];
-        std::vector<int32_t> gradInputIndices;
-            for (size_t dim = 0; dim < coord.size(); ++dim) {
-                if (dim == dim_)
-                    gradInputIndices.push_back(maxIndex);
-                else
-                    gradInputIndices.push_back(coord[dim]);
+        for (int32_t n = 0; n < elemSize; ++n) {
+            std::vector<int32_t> coord(maxIndicesShape.size());
+            int32_t remainder = n;
+            for (size_t dim = 0; dim < maxIndicesShape.size(); ++dim) {
+                coord[dim] = remainder / strides[dim];
+                remainder = remainder % strides[dim];
             }
-    gradInput.indexPut_(gradInputIndices, grad.data()[n]);
-  }
-  if (savedTensors[0].isRequiresGrad()) {
-    ret.push_back(gradInput);
-  }
+            int32_t maxIndex = maxIndices.data()[n];
+            std::vector<int32_t> gradInputIndices;
+                for (size_t dim = 0; dim < coord.size(); ++dim) {
+                    if (dim == dim_)
+                        gradInputIndices.push_back(maxIndex);
+                    else
+                        gradInputIndices.push_back(coord[dim]);
+                }
+        gradInput.indexPut_(gradInputIndices, grad.data()[n]);
+      }
+        ret.push_back(gradInput);
+    }
   return ret;
 }
 

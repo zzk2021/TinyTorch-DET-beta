@@ -31,6 +31,7 @@ enum FunctionType {
   Function_UnFlatten,
   Function_FlashAttention,
   Function_UpSample,
+  Function_ConCat,
   Function_Attention,
   Function_Squeeze,
   Function_Unsqueeze,
@@ -52,6 +53,7 @@ class Tensor;
 class Function : public std::enable_shared_from_this<Function> {
  public:
   static Tensor add(const Tensor& a, const Tensor& b);
+  static Tensor concat(const Tensor& a, const Tensor& b, int32_t dim);
   static Tensor sub(const Tensor& a, const Tensor& b);
   static Tensor mul(const Tensor& a, const Tensor& b);
   static Tensor div(const Tensor& a, const Tensor& b);
@@ -164,6 +166,15 @@ class FuncUpSample : public Function {
 class FuncAdd : public Function {
  public:
   DEFINE_FUNCTION_MEMBERS(Function_Add)
+};
+
+class FuncConCat : public Function {
+ public:
+    FuncConCat(int32_t dim)
+     : dim_(dim){}
+  DEFINE_FUNCTION_MEMBERS(Function_ConCat)
+ private:
+  int32_t dim_;
 };
 
 class FuncSub : public Function {

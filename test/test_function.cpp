@@ -10,6 +10,20 @@
 
 using namespace TinyTorch;
 
+TEST(TEST_Function, concat) {
+  Tensor x({
+    {1.0f, 2.0f, 3.0f},
+    {2.0f,2.5f,1.0f},
+    {2.5f,3.0f,1.0f}}, true);
+  Tensor a({
+    {1.0f, 2.0f, 3.0f},
+    {2.0f,2.5f,1.0f},
+    {2.5f,3.0f,1.0f}}, true);
+  auto y = Function::concat(x, a, 1);
+  EXPECT_THAT(y.data().toList(), ElementsAre(1.0f, 2.0f, 3.0f,1.0f, 2.0f, 3.0f,2.0f,2.5f,1.0f,2.0f,2.5f,1.0f,2.5f,3.0f,1.0f,2.5f,3.0f,1.0f));
+ // y.backward(Tensor::onesLike(y));
+  //EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 1, 0, 0, 1, 0));
+}
 
 TEST(TEST_Function, func_max) {
   Tensor x({
@@ -62,9 +76,23 @@ TEST(TEST_Function, func_max1) {
 
 
 TEST(TEST_Function, func_upsample) {
-  Tensor a({{{{1, 2},{1, 5}},{{1, 2},{1, 7}},{{1, 2},{1, 9}}},{{{1, 2},{1, 5}},{{1, 2},{1, 7}},{{1, 2},{1, 9}}}}, true);
+    Array4d array = {
+        {
+            {
+                { {1}, {5} },
+                { {2}, {7} },
+                { {2}, {9} }
+            },
+            {
+                { {1}, {1} },
+                { {1}, {1} },
+                { {1}, {1} }
+            }
+        }
+    };
+  Tensor a(array, true);
   auto y = Function::upsample(a, 2);
-  EXPECT_THAT(y.data().toList(), ElementsAre(1,1,2,2,1,1,5,5,1,1,2,2,1,1,7,7,1,1,2,2,1,1,9,9));
+  EXPECT_THAT(y.data().toList(), ElementsAre(1,1,5,5,1,1,5,5,2,2,7,7,2,2,7,7,2, 2, 9, 9,2, 2, 9, 9,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1));
   y.backward(Tensor::onesLike(y));
   EXPECT_THAT(a.getGrad().data().toList(), ElementsAre(4,4,4,4,4,4,4,4,4,4,4,4));
 }

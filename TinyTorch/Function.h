@@ -30,6 +30,7 @@ enum FunctionType {
   Function_Flatten,
   Function_UnFlatten,
   Function_FlashAttention,
+  Function_UpSample,
   Function_Attention,
   Function_Squeeze,
   Function_Unsqueeze,
@@ -63,7 +64,7 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor relu(const Tensor& input);
 
   static Tensor flatten(const Tensor& input, int32_t startDim, int32_t endDim);
-
+  static Tensor upsample(const Tensor& input, int32_t scale_factor);
   static Tensor unflatten(const Tensor& input, int32_t dim,
                           const std::vector<int32_t>& sizes);
 
@@ -149,6 +150,16 @@ class FuncLeaf : public Function {
  public:
   DEFINE_FUNCTION_MEMBERS(Function_Leaf)
 };
+
+class FuncUpSample : public Function {
+ public:
+  FuncUpSample(int32_t scale_factor)
+        : scale_factor_(scale_factor){}
+  DEFINE_FUNCTION_MEMBERS(Function_Upsample)
+ private:
+  int32_t scale_factor_;
+};
+
 
 class FuncAdd : public Function {
  public:

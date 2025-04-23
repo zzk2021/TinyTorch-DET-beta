@@ -33,6 +33,7 @@ std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     FUNC_ENUM_TO_STRING(Function_Flatten),
     FUNC_ENUM_TO_STRING(Function_UnFlatten),
     FUNC_ENUM_TO_STRING(Function_FlashAttention),
+    FUNC_ENUM_TO_STRING(Function_UpSample),
     FUNC_ENUM_TO_STRING(Function_Squeeze),
     FUNC_ENUM_TO_STRING(Function_Unsqueeze),
     FUNC_ENUM_TO_STRING(Function_Reshape),
@@ -46,6 +47,11 @@ std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     FUNC_ENUM_TO_STRING(Function_MSELoss),
     FUNC_ENUM_TO_STRING(Function_NLLLoss),
 };
+
+Tensor Function::upsample(const Tensor& input, int32_t scale_factor) {
+  return std::make_shared<FuncUpSample>(scale_factor)
+      ->callForward({&input});
+}
 
 Tensor Function::add(const Tensor& a, const Tensor& b) {
   return std::make_shared<FuncAdd>()->callForward({&a, &b});
@@ -223,6 +229,86 @@ std::vector<TensorImpl> FuncLeaf::backward(const TensorImpl& grad) {
   assert(grad.shape() == owner->grad_.data_->shape());
   *owner->grad_.data_ = grad;
   return {grad};
+}
+
+
+TensorImpl FuncUpSample::forward(const std::vector<const Tensor*>& inputs) {
+    saveForBackward(inputs);
+
+    // Get input tensor information
+    const auto& input_data = inputs[0]->data().data();  // Get raw data pointer
+    const auto& input_shape = inputs[0]->data().shape();  // Get input shape
+    const int32_t scale_factor = scale_factor_;  // Get scale factor
+
+    // Determine number of dimensions (assuming NCHW format)
+    const int num_dims = input_shape.size();
+    if (num_dims != 4) {
+        throw std::runtime_error("Upsample only supports 4D tensors (NCHW format)");
+    }
+    // Calculate output shape
+    std::vector<int32_t> output_shape(input_shape);
+    for (int i = 2; i < num_dims; ++i) {  // Only scale height and width (last two dims)
+        output_shape[i] *= scale_factor;
+    }
+    TensorImpl output  = TensorImpl::zeros(output_shape);
+    auto output_data = output.data();
+    const int32_t N = input_shape[0];  // batch size
+    const int32_t C = input_shape[1];  // channels
+    const int32_t H = input_shape[2];  // height
+    const int32_t W = input_shape[3];  // width
+    const int32_t out_H = output_shape[2];
+    const int32_t out_W = output_shape[3];
+    // Perform nearest neighbor upsampling
+    for (int32_t n = 0; n < N; ++n) {
+        for (int32_t c = 0; c < C; ++c) {
+            for (int32_t h = 0; h < out_H; ++h) {
+                const int32_t in_h = h / scale_factor;
+                for (int32_t w = 0; w < out_W; ++w) {
+                    const int32_t in_w = w / scale_factor;
+                    // Calculate input and output indices
+                    const int32_t input_idx = n * C * H * W + c * H * W + in_h * W + in_w;
+                    const int32_t output_idx = n * C * out_H * out_W + c * out_H * out_W + h * out_W + w;
+                    // Copy value from input to output
+                    output_data[output_idx] = input_data[input_idx];
+                }
+            }
+        }
+    }
+    return output;
+}
+
+std::vector<TensorImpl> FuncUpSample::backward(const TensorImpl& grad) {
+    const auto& savedTensors = getSavedTensors();
+    std::vector<TensorImpl> ret;
+
+    if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
+        const auto& input_shape = savedTensors[0].shape();
+        const int32_t scale = scale_factor_;
+
+        TensorImpl input_grad = TensorImpl::zeros(input_shape);
+        auto output_grad = grad.data();
+        const int32_t N = input_shape[0];
+        const int32_t C = input_shape[1];
+        const int32_t H = input_shape[2];
+        const int32_t W = input_shape[3];
+        const int32_t out_H = H * scale;
+        const int32_t out_W = W * scale;
+        for (int32_t n = 0; n < N; ++n) {
+            for (int32_t c = 0; c < C; ++c) {
+                for (int32_t h = 0; h < out_H; ++h) {
+                    const int32_t src_h = std::min(h / scale, H - 1);
+                    for (int32_t w = 0; w < out_W; ++w) {
+                        const int32_t src_w = std::min(w / scale, W - 1);
+                        const int32_t input_idx = ((n * C + c) * H + src_h) * W + src_w;
+                        const int32_t output_idx = ((n * C + c) * out_H + h) * out_W + w;
+                        input_grad.data()[input_idx] += output_grad[output_idx];
+                    }
+                }
+            }
+        }
+        ret.push_back(input_grad);
+    }
+    return ret;
 }
 
 TensorImpl FuncAdd::forward(const std::vector<const Tensor*>& inputs) {

@@ -32,7 +32,7 @@ TEST(TEST_Function, func_max3) {
   auto y = Function::max(x, 0, true);
   EXPECT_THAT(y.data().toList(), ElementsAre(2.5, 3.0, 3., 3., 2.7, 3.0));
   y.backward(Tensor::onesLike(y));
-  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 1, 0, 0, 1, 0));
+  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,1,1,0,0,1,1));
 }
 
 TEST(TEST_Function, func_max4) {
@@ -46,7 +46,7 @@ TEST(TEST_Function, func_max4) {
   auto y = Function::max(x, 1, true);
   EXPECT_THAT(y.data().toList(), ElementsAre(3.0, 2.5, 3.0, 2.0, 2.5, 1.0, 2.5, 3.0, 3.0));
   y.backward(Tensor::onesLike(y));
-  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 1, 0, 0, 1, 0));
+  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 1, 1, 0, 1, 1, 1, 0,0,0,1,1,0,0,0,1));
 }
 
 TEST(TEST_Function, func_max1) {
@@ -62,7 +62,7 @@ TEST(TEST_Function, func_max1) {
 
 
 TEST(TEST_Function, func_upsample) {
-  Tensor a({{{1, 2},{1, 5}},{{1, 2},{1, 7}},{{1, 2},{1, 9}}}, true);
+  Tensor a({{{{1, 2},{1, 5}},{{1, 2},{1, 7}},{{1, 2},{1, 9}}},{{{1, 2},{1, 5}},{{1, 2},{1, 7}},{{1, 2},{1, 9}}}}, true);
   auto y = Function::upsample(a, 2);
   EXPECT_THAT(y.data().toList(), ElementsAre(1,1,2,2,1,1,5,5,1,1,2,2,1,1,7,7,1,1,2,2,1,1,9,9));
   y.backward(Tensor::onesLike(y));
@@ -160,55 +160,6 @@ TEST(TEST_Function, func_sum2) {
 
   y.backward();
   EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(1, 1, 1));
-}
-
-TEST(TEST_Function, func_max) {
-  Tensor x({
-    {1.0f, 2.0f, 3.0f},
-    {2.0f,2.5f,1.0f},
-    {2.5f,3.0f,1.0f}}, true);
-  auto y = Function::max(x, 1, true);
-  EXPECT_THAT(y.data().toList(), ElementsAre(3., 2.5, 3.));
-  y.backward(Tensor::onesLike(y));
-  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 1, 0, 0, 1, 0));
-}
-
-
-TEST(TEST_Function, func_max3) {
-  Tensor x({
-    {{1.0f, 2.0f, 3.0f},{3.0f, 2.5f, 1.0f}},
-    {{2.0f,2.5f,1.0f},{1.0f, 2.5f, 0.5f}},
-    {{2.5f,3.0f,1.0f},{0.8f, 2.7f, 3.0f}}
-}, true);
-  auto y = Function::max(x, 0, true);
-  EXPECT_THAT(y.data().toList(), ElementsAre(2.5, 3.0, 3., 3., 2.7, 3.0));
-  y.backward(Tensor::onesLike(y));
-  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 1, 0, 0, 1, 0));
-}
-
-TEST(TEST_Function, func_max4) {
-  Tensor x({
-    {{1.0f, 2.0f, 3.0f},{3.0f, 2.5f, 1.0f}},
-    {{2.0f,2.5f,1.0f},{1.0f, 2.5f, 0.5f}},
-    {{2.5f,3.0f,1.0f},{0.8f, 2.7f, 3.0f}}
-}, true);
-  // 3x2x3
-  printf("\n");
-  auto y = Function::max(x, 1, true);
-  EXPECT_THAT(y.data().toList(), ElementsAre(3.0, 2.5, 3.0, 2.0, 2.5, 1.0, 2.5, 3.0, 3.0));
-  y.backward(Tensor::onesLike(y));
-  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 1, 0, 0, 1, 0));
-}
-
-TEST(TEST_Function, func_max1) {
-  Tensor x({
-    {1.0f, 2.0f, 3.0f},
-    {2.0f,2.5f,1.0f},
-    {2.5f,3.0f,1.0f}}, true);
-  auto y = Function::max(x, 0, true);
-  EXPECT_THAT(y.data().toList(), ElementsAre(2.5, 3., 3.));
-  y.backward(Tensor::onesLike(y));
-  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 0, 0, 1, 1, 0));
 }
 
 TEST(TEST_Function, func_linear) {

@@ -155,7 +155,7 @@ class FuncUpSample : public Function {
  public:
   FuncUpSample(int32_t scale_factor)
         : scale_factor_(scale_factor){}
-  DEFINE_FUNCTION_MEMBERS(Function_Upsample)
+  DEFINE_FUNCTION_MEMBERS(Function_UpSample)
  private:
   int32_t scale_factor_;
 };

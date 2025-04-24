@@ -9,7 +9,7 @@ if (${USE_CUDA})
     find_package(CUDA REQUIRED)
     enable_language(CUDA)
 
-    file(GLOB_RECURSE TinyTorch_src_cu "./TensorImpl/*.cu" "./TensorImpl/flash_attention.cu")
+    file(GLOB_RECURSE TinyTorch_src_cu "./TensorImpl/*.cu" "./TensorImpl/kernel/*.cu")
 else ()
     set(TinyTorch_src_cu "")
 endif ()

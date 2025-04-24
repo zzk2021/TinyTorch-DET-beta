@@ -1136,6 +1136,19 @@ void TensorOpsCPU::gemm(float* c, const float* a, const float* b, int32_t m,
 
 TensorImpl TensorOpsCPU::flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
                const TensorImpl& V , int32_t head) {
+  throw std::runtime_error("We have not implement in CPU yet");
+  TensorImpl retTensor ;
+  return retTensor;
+}
+
+TensorImpl TensorOpsCPU::upsample_forward(const TensorImpl& a) {
+  throw std::runtime_error("We have not implement in CPU yet");
+  TensorImpl retTensor ;
+  return retTensor;
+}
+
+TensorImpl TensorOpsCPU::upsample_backward(const TensorImpl& a) {
+    throw std::runtime_error("We have not implement in CPU yet");
   TensorImpl retTensor ;
   return retTensor;
 }

@@ -14,6 +14,7 @@
 #include "TensorImpl_cpu.h"
 #include "TensorImpl_cuda.cuh"
 #include "TensorImpl_cuda.inc"
+
 namespace TinyTorch {
 
 const char* curandGetErrorString(curandStatus_t status);
@@ -1127,6 +1128,47 @@ void TensorOpsCUDA::gemm(float* c, const float* a, const float* b, int32_t m,
 
   CUBLAS_CHECK(cublasSgemm(getCublasHandle(), opB, opA, n, m, k, &alpha, b, ldb,
                            a, lda, &beta, c, ldc));
+}
+
+TensorImpl TensorOpsCUDA::upsample_forward(const TensorImpl& a , int32_t scale_factor){
+  TensorImpl ret = TensorImpl::shape({a.shape_[0], a.shape_[1], static_cast<int>(a.shape_[2]*scale_factor),
+                                            static_cast<int>(a.shape_[3]*scale_factor)}, a.device());
+  int32_t N = a.numel();
+  int32_t h = a.shape_[2];
+  int32_t w = a.shape_[3];
+  if (scale_factor == 2 && N >= 256){
+    dim3 grid(N / kBlockSize, 1);
+    dim3 block(kBlockSize, 1);
+    UpsampleNearest2D2XForward<<<grid, block>>>(N, a.data_, h,
+                                                w, ret.data_);
+  }
+  else{}
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
+  }
+  return ret;
+}
+
+TensorImpl TensorOpsCUDA::upsample_backward(const TensorImpl& a , int32_t scale_factor){
+  TensorImpl ret = TensorImpl::shape({a.shape_[0], a.shape_[1], static_cast<int>(a.shape_[2]*scale_factor),
+                                            static_cast<int>(a.shape_[3]*scale_factor)}, a.device());
+  int32_t N = a.numel();
+  int32_t h = a.shape_[2];
+  int32_t w = a.shape_[3];
+  if (scale_factor == 2 && N >= 256){
+    dim3 grid(N / kBlockSize, 1);
+    dim3 block(kBlockSize, 1);
+    UpsampleNearest2D2XBackward<<<grid, block>>>(N, a.data_, h,
+                                                 w, ret.data_);
+  }
+  else
+      {}
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
+  }
+  return ret;
 }
 
 const char* curandGetErrorString(curandStatus_t status) {

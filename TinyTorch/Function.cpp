@@ -250,6 +250,11 @@ TensorImpl FuncUpSample::forward(const std::vector<const Tensor*>& inputs) {
     if (num_dims != 4) {
         throw std::runtime_error("Upsample only supports 4D tensors (NCHW format)");
     }
+    if (inputs[0]->device() == Device::CUDA){
+        auto ret = inputs[0]->data().ops()->upsample_forward(inputs[0]->data(), scale_factor);
+        return ret;
+    }
+
     // Calculate output shape
     std::vector<int32_t> output_shape(input_shape);
     for (int i = 2; i < num_dims; ++i) {  // Only scale height and width (last two dims)
@@ -283,12 +288,23 @@ TensorImpl FuncUpSample::forward(const std::vector<const Tensor*>& inputs) {
 }
 
 std::vector<TensorImpl> FuncUpSample::backward(const TensorImpl& grad) {
-    const auto& savedTensors = getSavedTensors();
-    std::vector<TensorImpl> ret;
+  const auto& savedTensors = getSavedTensors();
+  std::vector<TensorImpl> ret;
+  if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
+    const int num_dims = grad.shape().size();
+    if (num_dims != 4) {
+      throw std::runtime_error("Upsample only supports 4D tensors (NCHW format)");
+    }
 
-    if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
+    const int32_t scale = scale_factor_;
+
+    if (grad.device() == Device::CUDA){
+      auto ret1 = grad.ops()->upsample_backward(grad, scale);
+     return {ret1};
+    }
+
         const auto& input_shape = savedTensors[0].shape();
-        const int32_t scale = scale_factor_;
+
 
         TensorImpl input_grad = TensorImpl::zeros(input_shape);
         auto output_grad = grad.data();
@@ -312,8 +328,9 @@ std::vector<TensorImpl> FuncUpSample::backward(const TensorImpl& grad) {
             }
         }
         ret.push_back(input_grad);
+
     }
-    return ret;
+  return ret;
 }
 
 TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {

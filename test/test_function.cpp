@@ -74,6 +74,18 @@ TEST(TEST_Function, func_max1) {
   EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 0, 0, 1, 1, 0));
 }
 
+TEST(TEST_TensorImpl, func_upsample_cuda) {
+  // test scale_factor = 2    device = CUDA
+  Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
+  auto y = Function::upsample(a, 2);
+  y.backward(Tensor::onesLike(y));
+
+  Tensor b = a.to(Device::CPU);
+  auto y_cpu = Function::upsample(b, 2);
+  y_cpu.backward(Tensor::onesLike(y_cpu));
+  EXPECT_THAT(y.data().toList(), y.data().toList());
+  EXPECT_THAT(a.getGrad().data().toList(), b.getGrad().data().toList());
+}
 
 TEST(TEST_Function, func_upsample) {
     Array4d array = {

@@ -1,15 +1,12 @@
 
 #pragma once
-
-namespace TinyTorch {
 #define kBlockSize 256
-
 // CUDA: grid stride looping
 #define CUDA_1D_KERNEL_LOOP(i, n)                                                                 \
   for (int32_t i = blockIdx.x * blockDim.x + threadIdx.x, step = blockDim.x * gridDim.x; i < (n); \
        i += step)
 
-
+namespace TinyTorch {
 template<typename T = float>
 struct alignas(2 * sizeof(T)) Pack2X {
   T x;

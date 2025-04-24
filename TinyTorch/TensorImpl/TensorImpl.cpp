@@ -12,6 +12,7 @@
 #include "TensorImpl_cpu.h"
 #ifdef USE_CUDA
 #include "TensorImpl_cuda.cuh"
+
 #include "../Enums.h"
 #endif
 

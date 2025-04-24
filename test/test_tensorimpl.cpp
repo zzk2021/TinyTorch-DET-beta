@@ -16,6 +16,7 @@ TEST(TEST_TensorImpl, constructor_default) {
   EXPECT_TRUE(x.dim() == 0);
 }
 
+
 TEST(TEST_TensorImpl, basic_tril) {
   auto x = TensorImpl::tril(TensorImpl::ones({3, 3}));
   EXPECT_THAT(x.shape(), ElementsAre(3, 3));

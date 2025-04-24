@@ -1141,16 +1141,13 @@ TensorImpl TensorOpsCPU::flash_attention_(const TensorImpl& Q, const TensorImpl&
   return retTensor;
 }
 
-TensorImpl TensorOpsCPU::upsample_forward(const TensorImpl& a) {
+TensorImpl TensorOpsCPU::upsample_forward(const TensorImpl& Q, int32_t scale_factor) {
   throw std::runtime_error("We have not implement in CPU yet");
-  TensorImpl retTensor ;
-  return retTensor;
+
 }
 
-TensorImpl TensorOpsCPU::upsample_backward(const TensorImpl& a) {
+TensorImpl TensorOpsCPU::upsample_backward(const TensorImpl& Q, int32_t scale_factor) {
     throw std::runtime_error("We have not implement in CPU yet");
-  TensorImpl retTensor ;
-  return retTensor;
 }
 }  // namespace TinyTorch
 

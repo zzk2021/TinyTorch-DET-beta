@@ -5,11 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if (${USE_CUDA})
-    set(CMAKE_CUDA_ARCHITECTURES "60;70;75;80")
+    set(CMAKE_CUDA_ARCHITECTURES "60;70;75;80;89")
     find_package(CUDA REQUIRED)
     enable_language(CUDA)
 
-    file(GLOB_RECURSE TinyTorch_src_cu "./TensorImpl/*.cu" "./TensorImpl/kernel/*.cu")
+    file(GLOB_RECURSE TinyTorch_src_cu "./TensorImpl/*.cu")
 else ()
     set(TinyTorch_src_cu "")
 endif ()

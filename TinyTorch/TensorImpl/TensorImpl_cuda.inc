@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "kernel/upsample.inc"
+
 namespace TinyTorch {
 
 #define WARP_SIZE 32
@@ -960,3 +962,4 @@ template <bool LOWER>
     }
   }
 }
+

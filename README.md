@@ -1,3 +1,7 @@
+# TinyTorch-DET
+
+This is a exploration of TinyTorch for object detection and some vision tasks.
+
 # TinyTorch
 
 Tiny deep learning training framework implemented from scratch in C++ that follows PyTorch's API. For more details, see [Write a nn training framework from scratch](https://robot9.me/write-nn-framework-from-scratch-tinytorch/)
@@ -18,6 +22,7 @@ Tiny deep learning training framework implemented from scratch in C++ that follo
   - LogSoftmax
   - Relu
   - Sequential
+  - UpSample
 - Loss
   - MSELoss
   - NLLLoss

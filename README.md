@@ -18,6 +18,7 @@ Tiny deep learning training framework implemented from scratch in C++ that follo
   - LogSoftmax
   - Relu
   - Sequential
+  - UpSample
 - Loss
   - MSELoss
   - NLLLoss

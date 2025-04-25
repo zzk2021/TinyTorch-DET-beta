@@ -26,6 +26,8 @@ void manualSeed(unsigned long seed);
 
 void setDefaultDevice(Device device);
 
+void setDefaultType(Dtype type);
+
 void print(const TensorImpl& tensor, bool full = false);
 
 void print(const Tensor& tensor, bool full = false);

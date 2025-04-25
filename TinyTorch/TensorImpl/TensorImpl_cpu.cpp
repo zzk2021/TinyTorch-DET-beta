@@ -1111,8 +1111,9 @@ TensorImpl TensorOpsCPU::dot(const TensorImpl& a, const TensorImpl& b) {
   return TensorImpl::scalar(ret, a.device_);
 }
 
-void TensorOpsCPU::gemm(float* c, const float* a, const float* b, int32_t m,
+void TensorOpsCPU::gemm(float* c, const float * a, const float * b, int32_t m,
                         int32_t k, int32_t n, bool transA, bool transB) {
+
 #ifdef USE_BLAS
   cblas_sgemm(CblasRowMajor, transA ? CblasTrans : CblasNoTrans,
               transB ? CblasTrans : CblasNoTrans, m, n, k, 1.f, a,
@@ -1137,8 +1138,6 @@ void TensorOpsCPU::gemm(float* c, const float* a, const float* b, int32_t m,
 TensorImpl TensorOpsCPU::flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
                const TensorImpl& V , int32_t head) {
   throw std::runtime_error("We have not implement in CPU yet");
-  TensorImpl retTensor ;
-  return retTensor;
 }
 
 TensorImpl TensorOpsCPU::upsample_forward(const TensorImpl& Q, int32_t scale_factor) {
@@ -1147,6 +1146,25 @@ TensorImpl TensorOpsCPU::upsample_forward(const TensorImpl& Q, int32_t scale_fac
 }
 
 TensorImpl TensorOpsCPU::upsample_backward(const TensorImpl& Q, int32_t scale_factor) {
+    throw std::runtime_error("We have not implement in CPU yet");
+}
+
+void TensorOpsCPU::cpuConvertFp16OnDevice(void* src, void** dst, size_t count) {
+    throw std::runtime_error("We have not implement in CPU yet");
+}
+void TensorOpsCPU::cpuConvertBf16OnDevice(void* src, void** dst, size_t count) {
+    throw std::runtime_error("We have not implement in CPU yet");
+}
+void TensorOpsCPU::gpufp32ConvertFp16OnDevice(void* src, void** dst, size_t count) {
+    throw std::runtime_error("We have not implement in CPU yet");
+}
+void TensorOpsCPU::gpufp32ConvertBf16OnDevice(void* src, void** dst, size_t count) {
+    throw std::runtime_error("We have not implement in CPU yet");
+}
+void TensorOpsCPU::gpufp16ConvertFp32OnDevice(void* src, void** dst, size_t count) {
+    throw std::runtime_error("We have not implement in CPU yet");
+}
+void TensorOpsCPU::gpubf16ConvertFp32OnDevice(void* src, void** dst, size_t count) {
     throw std::runtime_error("We have not implement in CPU yet");
 }
 }  // namespace TinyTorch

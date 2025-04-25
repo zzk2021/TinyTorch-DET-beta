@@ -218,7 +218,6 @@ class Conv2D : public Module {
   Size2D stride_;
   Size2D padding_;
   bool useBias_;
-
   Tensor weights_;
   Tensor bias_;
 };

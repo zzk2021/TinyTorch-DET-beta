@@ -23,6 +23,14 @@ namespace TinyTorch {
 #endif
 
 enum class Device { CPU, CUDA };
+enum class Dtype {
+  float32_cpu = 0,
+  float32,
+  bfloat16,
+  float16,
+  float8_e4m3,
+  float8_e5m2
+};
 
 struct TINYTORCH_ALIGN(TENSOR_MEM_ALIGN) Size2D {
   Size2D(int32_t n) : h(n), w(n) {}
@@ -61,12 +69,23 @@ typedef enum ShapeCompatible_ {
   ShapeCompatible_Broadcast,
 } ShapeCompatible;
 
+
 #define TENSOR_OPS_DECLARE(_H, _T)                                             \
   /* memory */                                                                 \
   _H void allocate(void** ptr, size_t size) _T;                                \
   _H void deallocate(void* ptr) _T;                                            \
   _H void copyHostToDevice(void* dst, const void* src, size_t count) _T;       \
   _H void copyOnDevice(void* dst, const void* src, size_t count) _T;           \
+  _H void cpuConvertFp16OnDevice(void* src, void** dst, size_t count) _T;\
+  _H void cpuConvertBf16OnDevice(void* src, void** dst, size_t count) _T;\
+  _H void gpufp32ConvertFp16OnDevice(void* src, void** dst, size_t count)\
+  _T;                                                                          \
+  _H void gpufp32ConvertBf16OnDevice(void* src, void** dst,              \
+  size_t count) _T;                                                            \
+  _H void gpufp16ConvertFp32OnDevice(void* src,                          \
+  void** dst, size_t count)  _T;                                               \
+  _H void gpubf16ConvertFp32OnDevice(void* src,                          \
+  void** dst, size_t count)  _T;                                               \
   _H void copyDeviceToHost(void* dst, const void* src, size_t count) _T;       \
                                                                                \
   /* fill */                                                                   \
@@ -201,8 +220,16 @@ typedef enum ShapeCompatible_ {
   _H TensorImpl flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
                const TensorImpl& V , int32_t head) _T;                         \
   _H TensorImpl upsample_forward(const TensorImpl& Q, int32_t scale_factor) _T;\
-  _H TensorImpl upsample_backward(const TensorImpl& Q, int32_t scale_factor) _T;
+  _H TensorImpl upsample_backward(const TensorImpl& Q, int32_t scale_factor) _T;\
+
+
+#define TENSOR_OPS_WITH_DETYPE_DECLARE()                                       \
+  template <typename T, typename TO>                                           \
+  void gemm(TO* c, const T* a, const T* b, int32_t m, int32_t k,               \
+               int32_t n, bool transA, bool transB);                           \
+
 class TensorImpl;
+
 
 class TensorOperations {
  public:
@@ -230,7 +257,7 @@ class TensorOperations {
   static void error(const char* where, TensorError error);
 
   TENSOR_OPS_DECLARE(virtual, = 0)
-
+  TENSOR_OPS_WITH_DETYPE_DECLARE()
  protected:
   CachedAllocator allocator_;
 };

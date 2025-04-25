@@ -7,10 +7,12 @@
 
 #endif //ENUMS_H
 
-#include <cstdint>  // 用于指定底层类型
+#include <cstdint>  //
 
-// 强类型枚举
+namespace TinyTorch {
 enum class AttentionMethod {
   FalshAttentionV2 = 0,
   Attention,
 };
+
+}

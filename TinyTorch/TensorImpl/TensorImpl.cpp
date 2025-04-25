@@ -78,6 +78,7 @@ TensorOperations *Storage::getOps(Device device) {
 }
 
 Device TensorImpl::defaultDevice_ = Device::CPU;
+Dtype TensorImpl::defaultType_ = Dtype::float32_cpu;
 
 TensorImpl::TensorImpl(const TensorImpl &other) { shareFrom(other); }
 
@@ -329,11 +330,11 @@ TensorImpl TensorImpl::to(Device device) {
       ops_->copyDeviceToHost(ret.data_, data_, elemCount_ * sizeof(float));
     } else {
       ret.ops_->copyHostToDevice(ret.data_, data_, elemCount_ * sizeof(float));
+      setDefaultType(Dtype::float32);
     }
   }
   return ret;
 }
-
 void TensorImpl::to_(Device device) {
   TENSOR_DEVICE_AVAILABLE(device, );
   if (device_ == device) {
@@ -341,19 +342,52 @@ void TensorImpl::to_(Device device) {
   }
   auto oldStorage = storage_;
   auto oldData = data_;
-
+  auto oldData_d = data_t;
   device_ = device;
   initData();
 
   if (!empty()) {
     if (device == Device::CPU) {
-      oldStorage->ops_->copyDeviceToHost(data_, oldData,
+      oldStorage->ops_->copyDeviceToHost(data_, (oldData_d == nullptr ? oldData: oldData_d),
                                          elemCount_ * sizeof(float));
     } else {
       ops_->copyHostToDevice(data_, oldData, elemCount_ * sizeof(float));
     }
   }
 }
+
+void TensorImpl::to_(Device device, Dtype T) {
+  TENSOR_DEVICE_AVAILABLE(device, );
+  if (device_ == device && type_ == T) {
+    return;
+  }
+  if (device == Device::CPU && T != Dtype::float32_cpu) {
+    throw std::runtime_error("We only support fp32 in cpu");
+  }
+
+  auto oldData_d = data_t;
+  auto oldData = data_;
+  device_ = device;
+  initData();
+  if (!empty()) {
+      if (type_ == Dtype::float32 && T == Dtype::float16)
+        ops_->gpufp32ConvertFp16OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
+      else if(type_ == Dtype::float32 && T == Dtype::bfloat16)
+        ops_->gpufp32ConvertBf16OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
+      else if(type_ == Dtype::bfloat16 && T == Dtype::float32)
+        ops_->gpubf16ConvertFp32OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
+      else if(type_ == Dtype::float16 && T  == Dtype::float32)
+        ops_->gpufp16ConvertFp32OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
+      else if(type_ == Dtype::float32_cpu && T == Dtype::float32)
+        ops_->copyHostToDevice(data_t, (oldData_d == nullptr ? oldData: oldData_d), elemCount_ * sizeof(float));
+      else if(type_ == Dtype::float32_cpu && T == Dtype::float16)
+        ops_->cpuConvertFp16OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
+      else if(type_ == Dtype::float32_cpu && T == Dtype::bfloat16)
+        ops_->cpuConvertBf16OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
+      type_ = T;
+    }
+}
+
 
 std::vector<float> TensorImpl::toList() const {
   if (device_ == Device::CPU) {

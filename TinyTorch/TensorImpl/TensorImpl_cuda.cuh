@@ -52,7 +52,7 @@ class TensorOpsCUDA : public TensorOperations {
   static TensorCudaCtx getTensorCtx(const TensorImpl &t);
 
   TENSOR_OPS_DECLARE(, override)
-
+  TENSOR_OPS_WITH_DETYPE_DECLARE()
  protected:
   // op single
   template <typename OP>

@@ -22,6 +22,7 @@ void manualSeed(unsigned long seed) {
 }
 
 void setDefaultDevice(Device device) { TensorImpl::setDefaultDevice(device); }
+void setDefaultType(Dtype type) { TensorImpl::setDefaultType(type); }
 
 template <typename T>
 static std::string printArray(const std::vector<T>& vec, bool full) {

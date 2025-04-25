@@ -17,6 +17,35 @@ namespace TinyTorch {
 #define FETCH_FLOAT3(pointer) (reinterpret_cast<float3*>(&(pointer))[0])
 #define FETCH_FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
 
+__global__ void convertFloatToHalfKernel(float* src, __half* dst, size_t count) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < count) {
+
+        dst[idx] = __float2half(src[idx]);
+    }
+}
+
+__global__ void convertFloatToBf16Kernel(const float* src, __nv_bfloat16* dst, size_t count) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < count) {
+        dst[idx] = __float2bfloat16(src[idx]);
+    }
+}
+
+__global__ void convertBf16ToFloatKernel(const __nv_bfloat16* src, float* dst, size_t count) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < count) {
+        dst[idx] = __bfloat162float(src[idx]);  // 使用 CUDA 内置函数转换
+    }
+}
+
+__global__ void convertHalfToFloatKernel(const __half* src, float* dst, size_t count) {
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < count) {
+        dst[idx] = __half2float(src[idx]);  // 使用 CUDA 内置函数转换
+    }
+}
+
 struct OpCudaAdd {
   __device__ float operator()(const float a, const float b) const {
     return a + b;
@@ -847,7 +876,8 @@ __global__ void kIndexPut(TensorCudaCtx t, FixedVector<float*> indices,
   }
 }
 
-__global__ void kIm2Col(float* ret, const float* t, int32_t batch,
+template<typename T = float>
+__global__ void kIm2Col(T * ret, const T * t, int32_t batch,
                         int32_t channels, int32_t height, int32_t width,
                         int32_t outH, int32_t outW, int32_t kernelH,
                         int32_t kernelW, int32_t strideH, int32_t strideW,
@@ -879,8 +909,8 @@ __global__ void kIm2Col(float* ret, const float* t, int32_t batch,
 }
 
 
-
-__global__ void kCol2Im(float* ret, const float* t, int32_t batch,
+template<typename T = float>
+__global__ void kCol2Im(T* ret, const T* t, int32_t batch,
                         int32_t channels, int32_t height, int32_t width,
                         int32_t outH, int32_t outW, int32_t kernelH,
                         int32_t kernelW, int32_t strideH, int32_t strideW,

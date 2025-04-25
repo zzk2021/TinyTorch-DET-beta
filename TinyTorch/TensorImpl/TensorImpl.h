@@ -102,6 +102,7 @@ class TensorImpl {
 
   // conversion
   void to_(Device device);
+  void to_(Device device, Dtype T);
   TensorImpl to(Device device);
 
   std::vector<float> toList() const;
@@ -434,8 +435,9 @@ class TensorImpl {
   TensorOperations *ops() const { return ops_; }
 
   static void setDefaultDevice(Device device) { defaultDevice_ = device; }
-
+  static void setDefaultType(Dtype type) { defaultType_ = type; }
   static Device getDefaultDevice() { return defaultDevice_; }
+  static Dtype getDefaultType() { return defaultType_; }
 
   static bool deviceAvailable(Device device) {
     return Storage::getOps(device) != nullptr;
@@ -455,15 +457,17 @@ class TensorImpl {
   int32_t elemCount_ = 0;
   Shape shape_;
   Shape strides_;
-
+  Dtype type_ = Dtype::float32_cpu;
   // reference to storage_.data_
   float *data_ = nullptr;
+  void *data_t = nullptr;
 
   Device device_ = Device::CPU;
   TensorOperations *ops_ = nullptr;
   std::shared_ptr<Storage> storage_;
 
   static Device defaultDevice_;
+  static Dtype defaultType_;
 };
 
 }  // namespace TinyTorch

@@ -121,6 +121,12 @@ class Tensor {
     return *this;
   }
 
+  Tensor &to(Device device, Dtype T) {
+    data_->to_(device, T);
+    return *this;
+  }
+
+
   std::vector<float> toList() const { return data_->toList(); }
 
   static bool deviceAvailable(Device device) {

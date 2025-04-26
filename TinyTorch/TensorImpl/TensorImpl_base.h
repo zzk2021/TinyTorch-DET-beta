@@ -24,8 +24,7 @@ namespace TinyTorch {
 
 enum class Device { CPU, CUDA };
 enum class Dtype {
-  float32_cpu = 0,
-  float32,
+  float32 = 0,
   bfloat16,
   float16,
   float8_e4m3,
@@ -77,16 +76,8 @@ typedef enum ShapeCompatible_ {
   _H void deallocate(void* ptr) _T;                                            \
   _H void copyHostToDevice(void* dst, const void* src, size_t count) _T;       \
   _H void copyOnDevice(void* dst, const void* src, size_t count) _T;           \
-  _H void cpuConvertFp16OnDevice(void* src, void** dst, size_t count) _T;\
-  _H void cpuConvertBf16OnDevice(void* src, void** dst, size_t count) _T;\
-  _H void gpufp32ConvertFp16OnDevice(void* src, void** dst, size_t count)\
-  _T;                                                                          \
-  _H void gpufp32ConvertBf16OnDevice(void* src, void** dst,              \
-  size_t count) _T;                                                            \
-  _H void gpufp16ConvertFp32OnDevice(void* src,                          \
-  void** dst, size_t count)  _T;                                               \
-  _H void gpubf16ConvertFp32OnDevice(void* src,                          \
-  void** dst, size_t count)  _T;                                               \
+  _H void convertTypeOnDevice(void* dst, void* src, size_t count, Dtype Ti     \
+                   ,Dtype To) _T;                                              \
   _H void copyDeviceToHost(void* dst, const void* src, size_t count) _T;       \
                                                                                \
   /* fill */                                                                   \

@@ -19,6 +19,7 @@ add_executable(${PROJECT_NAME}
         test_module.cpp
         test_optimizer.cpp
         test_tensorimpl.cpp
+        test_cuda_kernel.cpp
 )
 target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../TinyTorch

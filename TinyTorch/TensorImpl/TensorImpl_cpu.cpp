@@ -433,6 +433,7 @@ void TensorOpsCPU::copyDeviceToHost(void* dst, const void* src, size_t count) {
   std::memcpy(dst, src, count);
 }
 
+
 void TensorOpsCPU::fillConstant_(float* dst, float val, size_t count) {
   std::fill(dst, dst + count, val);
 }
@@ -1155,24 +1156,10 @@ TensorImpl TensorOpsCPU::upsample_backward(const TensorImpl& Q, int32_t scale_fa
     throw std::runtime_error("We have not implement in CPU yet");
 }
 
-void TensorOpsCPU::cpuConvertFp16OnDevice(void* src, void** dst, size_t count) {
+void TensorOpsCPU::convertTypeOnDevice(void* dst, void* src, size_t count, Dtype Ti ,Dtype To) {
     throw std::runtime_error("We have not implement in CPU yet");
 }
-void TensorOpsCPU::cpuConvertBf16OnDevice(void* src, void** dst, size_t count) {
-    throw std::runtime_error("We have not implement in CPU yet");
-}
-void TensorOpsCPU::gpufp32ConvertFp16OnDevice(void* src, void** dst, size_t count) {
-    throw std::runtime_error("We have not implement in CPU yet");
-}
-void TensorOpsCPU::gpufp32ConvertBf16OnDevice(void* src, void** dst, size_t count) {
-    throw std::runtime_error("We have not implement in CPU yet");
-}
-void TensorOpsCPU::gpufp16ConvertFp32OnDevice(void* src, void** dst, size_t count) {
-    throw std::runtime_error("We have not implement in CPU yet");
-}
-void TensorOpsCPU::gpubf16ConvertFp32OnDevice(void* src, void** dst, size_t count) {
-    throw std::runtime_error("We have not implement in CPU yet");
-}
+
 }  // namespace TinyTorch
 
 

@@ -417,72 +417,52 @@ void TensorOpsCUDA::copyHostToDevice(void* dst, const void* src, size_t count) {
   CUDA_CHECK(cudaMemcpy(dst, src, count, cudaMemcpyHostToDevice));
 }
 
-void TensorOpsCUDA::cpuConvertFp16OnDevice(void* src, void** dst, size_t count) {
-    float* device_float_data;
-    __half* device_half_data;
-    CUDA_CHECK(cudaMalloc(&device_float_data, count * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&device_half_data, count * sizeof(__half)));
-    CUDA_CHECK(cudaMemcpy(device_float_data, src, count * sizeof(float), cudaMemcpyHostToDevice));
-    size_t threads_per_block = 256;
-    size_t blocks = (count + threads_per_block - 1) / threads_per_block;
-    convertFloatToHalfKernel<<<blocks, threads_per_block>>>(device_float_data, device_half_data, count);
-    *dst = static_cast<void*>(device_half_data);
-    cudaFree(device_float_data);
-}
-
-void TensorOpsCUDA::gpufp32ConvertFp16OnDevice(void* src, void** dst, size_t count) {
+void TensorOpsCUDA::convertTypeOnDevice(void* dst, void* src, size_t count, Dtype Ti ,Dtype To) {
    // src = static_cast<float*>(src);
-    float* src1 = static_cast<float*>(src);
-    __half* device_half_data;
-    cudaMalloc(&device_half_data, count * sizeof(__half));
     size_t threads_per_block = 256;
     size_t blocks = (count + threads_per_block - 1) / threads_per_block;
-    convertFloatToHalfKernel<<<blocks, threads_per_block>>>(src1, device_half_data, count);
-    *dst = static_cast<void*>(device_half_data);
+    if (Ti == Dtype::float32) {
+        assert(static_cast<float*>(src) != nullptr);
+    } else if (Ti == Dtype::bfloat16) {
+        assert(static_cast<__nv_bfloat16*>(src) != nullptr);
+    } else if (Ti == Dtype::float16) {
+        assert(static_cast<half*>(src) != nullptr);
+    }
+
+    if (To == Dtype::float32) {
+        assert(static_cast<float*>(dst) != nullptr);
+    } else if (To == Dtype::bfloat16) {
+        assert(static_cast<__nv_bfloat16*>(dst) != nullptr);
+    } else if (To == Dtype::float16) {
+        assert(static_cast<half*>(dst) != nullptr);
+    }
+
+    if (Ti == Dtype::float32 && To == Dtype::float16) {
+        convertFloatToHalfKernel<<<blocks, threads_per_block>>>(
+            static_cast<float*>(src), static_cast<half*>(dst), count);
+    } else if (Ti == Dtype::float32 && To == Dtype::bfloat16) {
+        convertFloatToBf16Kernel<<<blocks, threads_per_block>>>(
+            static_cast<float*>(src), static_cast<__nv_bfloat16*>(dst), count);
+    } else if (Ti == Dtype::bfloat16 && To == Dtype::float32) {
+        convertBf16ToFloatKernel<<<blocks, threads_per_block>>>(
+            static_cast<__nv_bfloat16*>(src), static_cast<float*>(dst), count);
+    } else if (Ti == Dtype::float16 && To == Dtype::float32) {
+        convertHalfToFloatKernel<<<blocks, threads_per_block>>>(
+            static_cast<half*>(src), static_cast<float*>(dst), count);
+    } else if (Ti == To) {
+        if (Ti == Dtype::float32)
+            cudaMemcpy(dst, src, count * sizeof(float), cudaMemcpyDeviceToDevice);
+        else if (Ti == Dtype::bfloat16 || Ti == Dtype::float16)
+            cudaMemcpy(dst, src, count * sizeof(half), cudaMemcpyDeviceToDevice);
+    } else {
+        LOGW("Type conversion from %d to %d is not supported, keeping the same type",
+             Ti, To);
+        //
+    }
+    CUDA_KERNEL_CHECK();
 }
 
-void TensorOpsCUDA::gpufp16ConvertFp32OnDevice(void* src, void** dst, size_t count) {
-    auto* src1 = static_cast<__half*>(src);
-    float* device_float_data;
-    cudaMalloc(&device_float_data, count * sizeof(float));
-    size_t threads_per_block = 256;
-    size_t blocks = (count + threads_per_block - 1) / threads_per_block;
-    convertHalfToFloatKernel<<<blocks, threads_per_block>>>(src1, device_float_data, count);
-    *dst = static_cast<void*>(device_float_data);
-}
 
-void TensorOpsCUDA::gpubf16ConvertFp32OnDevice(void* src, void** dst, size_t count) {
-    auto* src1 = static_cast<__nv_bfloat16*>(src);
-    float* device_float_data;
-    cudaMalloc(&device_float_data, count * sizeof(float));
-    size_t threads_per_block = 256;
-    size_t blocks = (count + threads_per_block - 1) / threads_per_block;
-    convertBf16ToFloatKernel<<<blocks, threads_per_block>>>(src1, device_float_data, count);
-    *dst = static_cast<void*>(device_float_data);
-}
-
-void TensorOpsCUDA::gpufp32ConvertBf16OnDevice(void* src, void** dst, size_t count) {
-    auto* src1 = static_cast<float*>(src);
-     __nv_bfloat16* device_half_data;
-    cudaMalloc(&device_half_data, count * sizeof(__nv_bfloat16));
-    size_t threads_per_block = 256;
-    size_t blocks = (count + threads_per_block - 1) / threads_per_block;
-    convertFloatToBf16Kernel<<<blocks, threads_per_block>>>(src1, device_half_data, count);
-    *dst = static_cast<void*>(device_half_data);
-}
-
-void TensorOpsCUDA::cpuConvertBf16OnDevice(void* src, void** dst, size_t count) {
-    float* device_float_data;
-    __nv_bfloat16* device_half_data;
-    cudaMalloc(&device_float_data, count * sizeof(float));
-    cudaMalloc(&device_half_data, count * sizeof(__half));
-    CUDA_CHECK(cudaMemcpy(device_float_data, src, count * sizeof(float), cudaMemcpyHostToDevice));
-    size_t threads_per_block = 256;
-    size_t blocks = (count + threads_per_block - 1) / threads_per_block;
-    convertFloatToBf16Kernel<<<blocks, threads_per_block>>>(device_float_data, device_half_data, count);
-    *dst = static_cast<void*>(device_half_data);
-    cudaFree(device_float_data);
-}
 
 void TensorOpsCUDA::copyOnDevice(void* dst, const void* src, size_t count) {
   CUDA_CHECK(cudaMemcpy(dst, src, count, cudaMemcpyDeviceToDevice));

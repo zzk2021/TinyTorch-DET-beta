@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
   TinyTorch::setDefaultType(TinyTorch::Dtype::float32);
 #else
   TinyTorch::setDefaultDevice(TinyTorch::Device::CPU);
-  TinyTorch::setDefaultType(TinyTorch::Dtype::float32_cpu);
+  TinyTorch::setDefaultType(TinyTorch::Dtype::float32);
 #endif
 
   testing::InitGoogleTest(&argc, argv);

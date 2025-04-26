@@ -26,13 +26,14 @@ class TensorOpsCUDA;
 #endif
 
 struct Storage {
-  Storage(size_t nbytes, Device device);
+  Storage(size_t nbytes, Device device, Dtype T = Dtype
+          ::float32);
   ~Storage();
 
   static TensorOperations *getOps(Device device);
-
   float *data_ = nullptr;
   size_t nbytes_ = 0;
+  Dtype type_ = Dtype::float32;
   TensorOperations *ops_ = nullptr;
 };
 
@@ -103,7 +104,7 @@ class TensorImpl {
 
   // conversion
   void to_(Device device);
-  void to_(Device device, Dtype T);
+  void to_(Dtype T);
   TensorImpl to(Device device);
 
   std::vector<float> toList() const;
@@ -418,7 +419,7 @@ class TensorImpl {
 
   // properties
   Device device() const { return device_; }
-
+  Dtype type() const { return type_; }
   bool empty() const { return elemCount_ == 0; }
 
   int32_t dim() const { return dimCount_; }
@@ -432,10 +433,6 @@ class TensorImpl {
   float *data() { return data_; }
 
   const float *data() const { return data_; }
-
-  void *data_p() { return data_t; }
-
-  const void *data_p() const { return data_t; }
 
   TensorOperations *ops() const { return ops_; }
 
@@ -452,7 +449,6 @@ class TensorImpl {
   void initMeta();
   void initMeta(const TensorImpl &other);
   void initData(const float *ptr = nullptr, Device device = Device::CPU);
-
   void cow();
   void shareFrom(const TensorImpl &other);
   void moveFrom(TensorImpl &&other);
@@ -462,10 +458,9 @@ class TensorImpl {
   int32_t elemCount_ = 0;
   Shape shape_;
   Shape strides_;
-  Dtype type_ = Dtype::float32_cpu;
+  Dtype type_ = Dtype::float32;
   // reference to storage_.data_
   float *data_ = nullptr;
-  void *data_t = nullptr;
 
   Device device_ = Device::CPU;
   TensorOperations *ops_ = nullptr;

@@ -41,8 +41,9 @@ namespace TinyTorch {
     }                                                                 \
   } while (0)
 
-Storage::Storage(size_t nbytes, Device device) {
+Storage::Storage(size_t nbytes, Device device, Dtype T) {
   nbytes_ = nbytes;
+  type_ = T;
   ops_ = getOps(device);
   if (ops_ == nullptr) {
     TensorOperations::error(__FUNCTION__, TensorError_InvalidDevice);
@@ -77,7 +78,7 @@ TensorOperations *Storage::getOps(Device device) {
 }
 
 Device TensorImpl::defaultDevice_ = Device::CPU;
-Dtype TensorImpl::defaultType_ = Dtype::float32_cpu;
+Dtype TensorImpl::defaultType_ = Dtype::float32;
 
 TensorImpl::TensorImpl(const TensorImpl &other) { shareFrom(other); }
 
@@ -172,13 +173,21 @@ void TensorImpl::initData(const float *ptr, Device device) {
   if (elemCount_ == 0) {
     return;
   }
-  storage_ = std::make_shared<Storage>(sizeof(float) * elemCount_, device_);
+  size_t size_storage =
+          type_ == Dtype::float32 ? sizeof(float) * elemCount_ :
+          type_ == Dtype::float16 ? 2 * elemCount_ :
+          type_ == Dtype::bfloat16 ? 2 * elemCount_ :
+          1 * elemCount_ ;
+
+  storage_ = std::make_shared<Storage>(size_storage, device_, type_);
+  type_ = storage_->type_;
   data_ = storage_->data_;
   ops_ = storage_->ops_;
   if (ptr) {
     copyToDevice(data_, ptr, storage_->nbytes_, device);
   }
 }
+
 
 void TensorImpl::cow() {
   if (storage_ && storage_.use_count() > 1) {
@@ -339,53 +348,44 @@ void TensorImpl::to_(Device device) {
   if (device_ == device) {
     return;
   }
+
+  auto oldData0 = data_;
+  auto oldStorage0 = storage_;
+  if (type_ != Dtype::float32){
+          type_ = Dtype::float32;
+          initData();
+          oldStorage0->ops_->convertTypeOnDevice(data_, oldData0 ,elemCount_, oldStorage0->type_, type_);
+  }
+
   auto oldStorage = storage_;
+
   auto oldData = data_;
-  auto oldData_d = data_t;
   device_ = device;
   initData();
-
+  auto oldStorage2 = storage_;
   if (!empty()) {
     if (device == Device::CPU) {
-      oldStorage->ops_->copyDeviceToHost(data_, (oldData_d == nullptr ? oldData: oldData_d),
-                                         elemCount_ * sizeof(float));
-      type_ = Dtype::float32_cpu;
+      oldStorage->ops_->copyDeviceToHost(data_, oldData,elemCount_ * sizeof(float));
     } else {
       ops_->copyHostToDevice(data_, oldData, elemCount_ * sizeof(float));
-      type_ = Dtype::float32;
     }
   }
 }
 
-void TensorImpl::to_(Device device, Dtype T) {
-  TENSOR_DEVICE_AVAILABLE(device, );
-  if (device_ == device && type_ == T) {
+void TensorImpl::to_(Dtype T) {
+  if (type_ == T) {
     return;
   }
-  if (device == Device::CPU && T != Dtype::float32_cpu) {
-    throw std::runtime_error("We only support fp32 in cpu");
+  if (device_ == Device::CPU) {
+    throw std::runtime_error("We only support data type in CUDA, please change the data device to CUDA");
   }
-
-  auto oldData_d = data_t;
   auto oldData = data_;
-  device_ = device;
+  auto oldStorage1 = storage_;
+  type_ = T;
   initData();
+  auto oldStorage2 = storage_;
   if (!empty()) {
-      if (type_ == Dtype::float32 && T == Dtype::float16)
-        ops_->gpufp32ConvertFp16OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
-      else if(type_ == Dtype::float32 && T == Dtype::bfloat16)
-        ops_->gpufp32ConvertBf16OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
-      else if(type_ == Dtype::bfloat16 && T == Dtype::float32)
-        ops_->gpubf16ConvertFp32OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
-      else if(type_ == Dtype::float16 && T  == Dtype::float32)
-        ops_->gpufp16ConvertFp32OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
-      else if(type_ == Dtype::float32_cpu && T == Dtype::float32)
-        ops_->copyHostToDevice(data_t, (oldData_d == nullptr ? oldData: oldData_d), elemCount_ * sizeof(float));
-      else if(type_ == Dtype::float32_cpu && T == Dtype::float16)
-        ops_->cpuConvertFp16OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
-      else if(type_ == Dtype::float32_cpu && T == Dtype::bfloat16)
-        ops_->cpuConvertBf16OnDevice((oldData_d == nullptr ? oldData: oldData_d) , &data_t, elemCount_);
-      type_ = T;
+      oldStorage1->ops_->convertTypeOnDevice(data_, oldData ,elemCount_, oldStorage1->type_, T);
     }
 }
 
@@ -394,7 +394,6 @@ std::vector<float> TensorImpl::toList() const {
   if (device_ == Device::CPU) {
     return {data_, data_ + elemCount_};
   }
-
   if (device_ == Device::CUDA) {
     if (type_ != Dtype::float32){
         LOGE("You have to change the type to float32 in GPU, then use toList()");

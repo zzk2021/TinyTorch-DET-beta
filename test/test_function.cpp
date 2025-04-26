@@ -100,6 +100,20 @@ TEST(TEST_Function, fp32_to_fp16_cuda) {
   }
 }
 
+TEST(TEST_Function, fp32_to_bf16_cuda) {
+  // test scale_factor = 2    device = CUDA
+  Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CPU),true);
+  auto p = a.data().toList();
+  a.to(Device::CUDA, Dtype::bfloat16);
+  a.to(Device::CUDA, Dtype::float32);
+  a.to(Device::CPU);
+  auto p1 = a.data().toList();
+  for (size_t i = 0; i < p.size(); ++i) {
+        ASSERT_NEAR(p[i], p1[i], 1e-2);
+  }
+}
+
+
 TEST(TEST_Function, func_upsample) {
     Array4d array = {
         {

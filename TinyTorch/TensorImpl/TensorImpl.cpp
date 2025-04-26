@@ -350,8 +350,10 @@ void TensorImpl::to_(Device device) {
     if (device == Device::CPU) {
       oldStorage->ops_->copyDeviceToHost(data_, (oldData_d == nullptr ? oldData: oldData_d),
                                          elemCount_ * sizeof(float));
+      type_ = Dtype::float32_cpu;
     } else {
       ops_->copyHostToDevice(data_, oldData, elemCount_ * sizeof(float));
+      type_ = Dtype::float32;
     }
   }
 }

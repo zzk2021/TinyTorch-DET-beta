@@ -303,31 +303,31 @@ std::vector<TensorImpl> FuncUpSample::backward(const TensorImpl& grad) {
      return {ret1};
     }
 
-        const auto& input_shape = savedTensors[0].shape();
+    const auto& input_shape = savedTensors[0].shape();
 
 
-        TensorImpl input_grad = TensorImpl::zeros(input_shape);
-        auto output_grad = grad.data();
-        const int32_t N = input_shape[0];
-        const int32_t C = input_shape[1];
-        const int32_t H = input_shape[2];
-        const int32_t W = input_shape[3];
-        const int32_t out_H = H * scale;
-        const int32_t out_W = W * scale;
-        for (int32_t n = 0; n < N; ++n) {
-            for (int32_t c = 0; c < C; ++c) {
-                for (int32_t h = 0; h < out_H; ++h) {
-                    const int32_t src_h = std::min(h / scale, H - 1);
-                    for (int32_t w = 0; w < out_W; ++w) {
-                        const int32_t src_w = std::min(w / scale, W - 1);
-                        const int32_t input_idx = ((n * C + c) * H + src_h) * W + src_w;
-                        const int32_t output_idx = ((n * C + c) * out_H + h) * out_W + w;
-                        input_grad.data()[input_idx] += output_grad[output_idx];
-                    }
+    TensorImpl input_grad = TensorImpl::zeros(input_shape);
+    auto output_grad = grad.data();
+    const int32_t N = input_shape[0];
+    const int32_t C = input_shape[1];
+    const int32_t H = input_shape[2];
+    const int32_t W = input_shape[3];
+    const int32_t out_H = H * scale;
+    const int32_t out_W = W * scale;
+    for (int32_t n = 0; n < N; ++n) {
+        for (int32_t c = 0; c < C; ++c) {
+            for (int32_t h = 0; h < out_H; ++h) {
+                const int32_t src_h = std::min(h / scale, H - 1);
+                for (int32_t w = 0; w < out_W; ++w) {
+                    const int32_t src_w = std::min(w / scale, W - 1);
+                    const int32_t input_idx = ((n * C + c) * H + src_h) * W + src_w;
+                    const int32_t output_idx = ((n * C + c) * out_H + h) * out_W + w;
+                    input_grad.data()[input_idx] += output_grad[output_idx];
                 }
             }
         }
-        ret.push_back(input_grad);
+    }
+    ret.push_back(input_grad);
 
     }
   return ret;

@@ -12,6 +12,24 @@
 
 namespace TinyTorch {
 
+template <Dtype T>
+struct CublasDataType;
+
+template <>
+struct CublasDataType<Dtype::float32> {
+    static constexpr cudaDataType_t value = CUDA_R_32F;
+};
+
+template <>
+struct CublasDataType<Dtype::bfloat16> {
+    static constexpr cudaDataType_t value = CUDA_R_16BF;
+};
+
+template <>
+struct CublasDataType<Dtype::float16> {
+    static constexpr cudaDataType_t value = CUDA_R_16F;
+};
+
 struct TINYTORCH_ALIGN(TENSOR_MEM_ALIGN) TensorCudaCtx {
   int32_t dimCount_;
   int32_t elemCount_;
@@ -52,7 +70,6 @@ class TensorOpsCUDA : public TensorOperations {
   static TensorCudaCtx getTensorCtx(const TensorImpl &t);
 
   TENSOR_OPS_DECLARE(, override)
-  TENSOR_OPS_WITH_DETYPE_DECLARE()
  protected:
   // op single
   template <typename OP>

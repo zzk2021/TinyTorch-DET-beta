@@ -12,7 +12,6 @@
 #include "TensorImpl_cpu.h"
 #ifdef USE_CUDA
 #include "TensorImpl_cuda.cuh"
-
 #include "../Enums.h"
 #endif
 
@@ -397,6 +396,9 @@ std::vector<float> TensorImpl::toList() const {
   }
 
   if (device_ == Device::CUDA) {
+    if (type_ != Dtype::float32){
+        LOGE("You have to change the type to float32 in GPU, then use toList()");
+    }
     std::vector<float> hostData(elemCount_);
     ops_->copyDeviceToHost(&hostData[0], data_, elemCount_ * sizeof(float));
     return hostData;

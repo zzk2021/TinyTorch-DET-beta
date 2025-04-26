@@ -18,6 +18,7 @@
 
 namespace TinyTorch {
 
+
 class TensorOperations;
 class TensorOpsCPU;
 #ifdef USE_CUDA
@@ -431,6 +432,10 @@ class TensorImpl {
   float *data() { return data_; }
 
   const float *data() const { return data_; }
+
+  void *data_p() { return data_t; }
+
+  const void *data_p() const { return data_t; }
 
   TensorOperations *ops() const { return ops_; }
 

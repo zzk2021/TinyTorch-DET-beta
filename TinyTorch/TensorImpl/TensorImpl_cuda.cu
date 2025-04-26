@@ -7,6 +7,10 @@
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 
+#if CUDA_VERSION >= 12010
+#include <cuda_fp8.h>
+#endif
+
 #include <cassert>
 #include <cfloat>
 #include <iostream>
@@ -16,23 +20,22 @@
 
 namespace TinyTorch {
 
-template <typename T>
-struct CublasDataType {
-    static constexpr cudaDataType_t value = CUDA_R_32F;
-};
 
-template <>
-struct CublasDataType<__nv_bfloat16> {
-    static constexpr cudaDataType_t value = CUDA_R_16BF;
-};
-
-template <>
-struct CublasDataType<__half> {
-    static constexpr cudaDataType_t value = CUDA_R_16F; //
-};
 
 const char* curandGetErrorString(curandStatus_t status);
 const char* cublasGetErrorString(cublasStatus_t status);
+
+#define DTYPE_CASE(dtype_enum, cuda_type, dtype)                              \
+    case dtype_enum: dtype = cuda_type; break;                                \
+
+//
+#define DTYPE_SWITCH(dtype_var, dtype)                                        \
+    switch (dtype_var) {                                                      \
+        DTYPE_CASE(Dtype::float32,   CUDA_R_32F, dtype)                       \
+        DTYPE_CASE(Dtype::bfloat16,  CUDA_R_16BF, dtype)                      \
+        DTYPE_CASE(Dtype::float16,   CUDA_R_16F, dtype)                       \
+        default: throw std::invalid_argument("Unsupported Dtype");            \
+    }                                                                         \
 
 #define CUDA_CHECK(call)                                                      \
   do {                                                                        \
@@ -1195,9 +1198,8 @@ TensorImpl TensorOpsCUDA::triangle(const TensorImpl& t, int32_t diagonal,
   return ret;
 }
 
-template <typename T, typename TO>
-void TensorOpsCUDA::gemm(TO* c, const T* a, const T* b, int32_t m,
-                         int32_t k, int32_t n, bool transA, bool transB) {
+void TensorOpsCUDA::gemm(void* c, const void* a, const void* b, int32_t m,
+                         int32_t k, int32_t n, bool transA, bool transB ,const  Dtype Ta, Dtype Tc) {
     cublasOperation_t opA = transA ? CUBLAS_OP_T : CUBLAS_OP_N;
     cublasOperation_t opB = transB ? CUBLAS_OP_T : CUBLAS_OP_N;
     int lda = transA ? m : k;
@@ -1205,16 +1207,19 @@ void TensorOpsCUDA::gemm(TO* c, const T* a, const T* b, int32_t m,
     int ldc = n;
     const float alpha = 1.f;
     const float beta = 0.f;
-    constexpr cudaDataType_t dtype = CublasDataType<T>::value;
+    cudaDataType_t dtypea;
+    DTYPE_SWITCH(Ta, dtypea);
+    cudaDataType_t dtypec;
+    DTYPE_SWITCH(Tc, dtypec);
     CUBLAS_CHECK(cublasGemmEx(
         getCublasHandle(),
         opB, opA,
         n, m, k,
         &alpha,
-        b, dtype, ldb,
-        a, dtype, lda,
+        b, dtypea, ldb,
+        a, dtypea, lda,
         &beta,
-        c, CublasDataType<TO>::value, ldc,
+        c,dtypec, ldc,
         CUDA_R_32F,
         CUBLAS_GEMM_DEFAULT
     ));

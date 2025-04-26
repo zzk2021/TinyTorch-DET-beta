@@ -1111,6 +1111,12 @@ TensorImpl TensorOpsCPU::dot(const TensorImpl& a, const TensorImpl& b) {
   return TensorImpl::scalar(ret, a.device_);
 }
 
+
+void TensorOpsCPU::gemm(void* c, const void* a, const void* b, int32_t m,
+                         int32_t k, int32_t n, bool transA, bool transB ,Dtype Ta, Dtype Tc){
+    throw std::runtime_error("We have not implement in CPU yet");
+}
+
 void TensorOpsCPU::gemm(float* c, const float * a, const float * b, int32_t m,
                         int32_t k, int32_t n, bool transA, bool transB) {
 

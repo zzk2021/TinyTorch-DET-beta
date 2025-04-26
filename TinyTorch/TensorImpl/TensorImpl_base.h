@@ -32,6 +32,7 @@ enum class Dtype {
   float8_e5m2
 };
 
+
 struct TINYTORCH_ALIGN(TENSOR_MEM_ALIGN) Size2D {
   Size2D(int32_t n) : h(n), w(n) {}
   Size2D(int32_t h, int32_t w) : h(h), w(w) {}
@@ -221,12 +222,10 @@ typedef enum ShapeCompatible_ {
                const TensorImpl& V , int32_t head) _T;                         \
   _H TensorImpl upsample_forward(const TensorImpl& Q, int32_t scale_factor) _T;\
   _H TensorImpl upsample_backward(const TensorImpl& Q, int32_t scale_factor) _T;\
+  _H void gemm(void* c, const void* a, const void* b, int32_t m,                \
+                         int32_t k, int32_t n, bool transA, bool transBk,      \
+                         Dtype Ta, Dtype Tc) _T;                               \
 
-
-#define TENSOR_OPS_WITH_DETYPE_DECLARE()                                       \
-  template <typename T, typename TO>                                           \
-  void gemm(TO* c, const T* a, const T* b, int32_t m, int32_t k,               \
-               int32_t n, bool transA, bool transB);                           \
 
 class TensorImpl;
 
@@ -257,7 +256,6 @@ class TensorOperations {
   static void error(const char* where, TensorError error);
 
   TENSOR_OPS_DECLARE(virtual, = 0)
-  TENSOR_OPS_WITH_DETYPE_DECLARE()
  protected:
   CachedAllocator allocator_;
 };

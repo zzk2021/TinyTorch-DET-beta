@@ -42,6 +42,18 @@ Tiny deep learning training framework implemented from scratch in C++ that follo
 
 ![](doc/AD.png)
 
+## FP16 BF16 support
+```c++
+#include "Torch.h"
+
+using namespace TinyTorch;
+
+Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
+a.to(Dtype::float16);
+a.to(Dtype::float32);
+a.to(Device::CPU);
+```
+
 ## MNIST training demo:
 ```c++
 #include "Torch.h"

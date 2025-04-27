@@ -35,6 +35,7 @@ struct TINYTORCH_ALIGN(TENSOR_MEM_ALIGN) TensorCudaCtx {
   int32_t elemCount_;
   int32_t shape_[TENSOR_MAX_DIMS];
   int32_t strides_[TENSOR_MAX_DIMS];
+  Dtype type_;
   float *data_;
 };
 
@@ -104,6 +105,7 @@ class TensorOpsCUDA : public TensorOperations {
                      const TensorImpl &b) const;
   template <typename OP>
   TensorImpl opPairBroadcast(const TensorImpl &a, const TensorImpl &b) const;
+
   template <typename OP>
   void opPairBroadcast_(TensorImpl &a, const TensorImpl &b) const;
 
@@ -121,12 +123,13 @@ class TensorOpsCUDA : public TensorOperations {
   template <typename OP>
   void reduceAllLastDim(float *dOutput, const float *dInput, int32_t n,
                         int32_t m = 1);
-  template <typename OP>
+  template <typename OP, typename T = float>
   std::pair<TensorImpl, TensorImpl> reduceDim(const TensorImpl &t, int32_t dim,
                                               bool keepDims);
 
   // transpose
-  static void transpose2D(float *out, const float *in, int32_t width,
+  template <typename T = float>
+  static void transpose2D(T *out, const T *in, int32_t width,
                           int32_t height);
  protected:
   int32_t cudaDeviceIdx_;

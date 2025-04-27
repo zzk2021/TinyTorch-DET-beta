@@ -61,6 +61,7 @@ typedef enum TensorError_ {
   TensorError_ShapeNotAligned,
   TensorError_DeviceNotAligned,
   TensorError_NotSupport,
+  TensorError_PrecisionAligned,
 } TensorError;
 
 typedef enum ShapeCompatible_ {
@@ -207,15 +208,13 @@ typedef enum ShapeCompatible_ {
   _H TensorImpl dot(const TensorImpl& a, const TensorImpl& b) _T;              \
                                                                                \
   /* matmul */                                                                 \
-  _H void gemm(float* c, const float* a, const float* b, int32_t m, int32_t k, \
-               int32_t n, bool transA, bool transB) _T;                        \
   _H TensorImpl flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
                const TensorImpl& V , int32_t head) _T;                         \
   _H TensorImpl upsample_forward(const TensorImpl& Q, int32_t scale_factor) _T;\
   _H TensorImpl upsample_backward(const TensorImpl& Q, int32_t scale_factor) _T;\
-  _H void gemm(void* c, const void* a, const void* b, int32_t m,                \
+  _H void gemm(float* c, const float* a, const float* b, int32_t m,            \
                          int32_t k, int32_t n, bool transA, bool transBk,      \
-                         Dtype Ta, Dtype Tc) _T;                               \
+                         Dtype Ta = Dtype::float32, Dtype Tc = Dtype::float32) _T;\
 
 
 class TensorImpl;

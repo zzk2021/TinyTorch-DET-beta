@@ -33,6 +33,14 @@ namespace TinyTorch {
     }                                                                      \
   } while (0)
 
+#define TENSOR_CHECK_DTYPE_RET(a, b, ret)                                 \
+  do {                                                                     \
+    if ((a).type() != (b).type()) {                                    \
+      TensorOperations::error(__FUNCTION__, TensorError_PrecisionAligned); \
+      return ret;                                                          \
+    }                                                                      \
+  } while (0)
+
 #define TENSOR_CHECK_EMPTY_RET(t, ret)                                \
   do {                                                                \
     if ((t).empty()) {                                                \
@@ -43,7 +51,6 @@ namespace TinyTorch {
 
 Storage::Storage(size_t nbytes, Device device, Dtype T) {
   nbytes_ = nbytes;
-  type_ = T;
   ops_ = getOps(device);
   if (ops_ == nullptr) {
     TensorOperations::error(__FUNCTION__, TensorError_InvalidDevice);
@@ -180,19 +187,24 @@ void TensorImpl::initData(const float *ptr, Device device) {
           1 * elemCount_ ;
 
   storage_ = std::make_shared<Storage>(size_storage, device_, type_);
-  type_ = storage_->type_;
   data_ = storage_->data_;
   ops_ = storage_->ops_;
   if (ptr) {
     copyToDevice(data_, ptr, storage_->nbytes_, device);
   }
+
 }
 
 
 void TensorImpl::cow() {
   if (storage_ && storage_.use_count() > 1) {
     auto oldData = data_;
-    storage_ = std::make_shared<Storage>(sizeof(float) * elemCount_, device_);
+    size_t size_storage =
+          type_ == Dtype::float32 ? sizeof(float) * elemCount_ :
+          type_ == Dtype::float16 ? 2 * elemCount_ :
+          type_ == Dtype::bfloat16 ? 2 * elemCount_ :
+          1 * elemCount_ ;
+    storage_ = std::make_shared<Storage>(size_storage, device_, type_);
     data_ = storage_->data_;
     ops_ = storage_->ops_;
     ops_->copyOnDevice(data_, oldData, storage_->nbytes_);
@@ -204,7 +216,7 @@ void TensorImpl::shareFrom(const TensorImpl &other) {
   elemCount_ = other.elemCount_;
   shape_ = other.shape_;
   strides_ = other.strides_;
-
+  type_ = other.type_;
   data_ = other.data_;
   device_ = other.device_;
   ops_ = other.ops_;
@@ -219,6 +231,7 @@ void TensorImpl::moveFrom(TensorImpl &&other) {
 
   data_ = other.data_;
   device_ = other.device_;
+  type_ = other.type_;
   ops_ = other.ops_;
   storage_ = std::move(other.storage_);
 
@@ -237,9 +250,10 @@ void TensorImpl::copyToDevice(void *dst, const void *src, size_t count,
   }
 }
 
-TensorImpl TensorImpl::shape(const Shape &s, Device device) {
+TensorImpl TensorImpl::shape(const Shape &s, Device device, Dtype type) {
   TensorImpl ret;
   ret.device_ = device;
+  ret.type_ = type;
   ret.shape_ = s;
   ret.initMeta();
   ret.initData();
@@ -350,11 +364,12 @@ void TensorImpl::to_(Device device) {
   }
 
   auto oldData0 = data_;
+  auto oldDatatype = type_;
   auto oldStorage0 = storage_;
   if (type_ != Dtype::float32){
           type_ = Dtype::float32;
           initData();
-          oldStorage0->ops_->convertTypeOnDevice(data_, oldData0 ,elemCount_, oldStorage0->type_, type_);
+          oldStorage0->ops_->convertTypeOnDevice(data_, oldData0 ,elemCount_, oldDatatype, type_);
   }
 
   auto oldStorage = storage_;
@@ -380,12 +395,13 @@ void TensorImpl::to_(Dtype T) {
     throw std::runtime_error("We only support data type in CUDA, please change the data device to CUDA");
   }
   auto oldData = data_;
+  auto oldDatatype = type_;
   auto oldStorage1 = storage_;
   type_ = T;
   initData();
   auto oldStorage2 = storage_;
   if (!empty()) {
-      oldStorage1->ops_->convertTypeOnDevice(data_, oldData ,elemCount_, oldStorage1->type_, T);
+      oldStorage1->ops_->convertTypeOnDevice(data_, oldData ,elemCount_, oldDatatype, T);
     }
 }
 
@@ -606,6 +622,7 @@ TensorImpl TensorImpl::operator+(const TensorImpl &other) const {
   TENSOR_CHECK_EMPTY_RET(*this, {});
   TENSOR_CHECK_EMPTY_RET(other, {});
   TENSOR_CHECK_DEVICE_RET(*this, other, {});
+  TENSOR_CHECK_DTYPE_RET(*this, other, {});
   return ops_->add(*this, other);
 }
 
@@ -613,6 +630,7 @@ TensorImpl TensorImpl::operator-(const TensorImpl &other) const {
   TENSOR_CHECK_EMPTY_RET(*this, {});
   TENSOR_CHECK_EMPTY_RET(other, {});
   TENSOR_CHECK_DEVICE_RET(*this, other, {});
+  TENSOR_CHECK_DTYPE_RET(*this, other, {});
   return ops_->sub(*this, other);
 }
 
@@ -620,6 +638,7 @@ TensorImpl TensorImpl::operator*(const TensorImpl &other) const {
   TENSOR_CHECK_EMPTY_RET(*this, {});
   TENSOR_CHECK_EMPTY_RET(other, {});
   TENSOR_CHECK_DEVICE_RET(*this, other, {});
+  TENSOR_CHECK_DTYPE_RET(*this, other, {});
   return ops_->mul(*this, other);
 }
 
@@ -627,6 +646,7 @@ TensorImpl TensorImpl::operator/(const TensorImpl &other) const {
   TENSOR_CHECK_EMPTY_RET(*this, {});
   TENSOR_CHECK_EMPTY_RET(other, {});
   TENSOR_CHECK_DEVICE_RET(*this, other, {});
+  TENSOR_CHECK_DTYPE_RET(*this, other, {});
   return ops_->div(*this, other);
 }
 
@@ -674,6 +694,7 @@ void TensorImpl::operator+=(const TensorImpl &other) {
   TENSOR_CHECK_EMPTY_RET(*this, );
   TENSOR_CHECK_EMPTY_RET(other, );
   TENSOR_CHECK_DEVICE_RET(*this, other, );
+  TENSOR_CHECK_DTYPE_RET(*this, other, );
   cow();
   ops_->add_(*this, other);
 }
@@ -682,6 +703,7 @@ void TensorImpl::operator-=(const TensorImpl &other) {
   TENSOR_CHECK_EMPTY_RET(*this, );
   TENSOR_CHECK_EMPTY_RET(other, );
   TENSOR_CHECK_DEVICE_RET(*this, other, );
+  TENSOR_CHECK_DTYPE_RET(*this, other, );
   cow();
   ops_->sub_(*this, other);
 }
@@ -690,6 +712,7 @@ void TensorImpl::operator*=(const TensorImpl &other) {
   TENSOR_CHECK_EMPTY_RET(*this, );
   TENSOR_CHECK_EMPTY_RET(other, );
   TENSOR_CHECK_DEVICE_RET(*this, other, );
+  TENSOR_CHECK_DTYPE_RET(*this, other, );
   cow();
   ops_->mul_(*this, other);
 }
@@ -698,6 +721,7 @@ void TensorImpl::operator/=(const TensorImpl &other) {
   TENSOR_CHECK_EMPTY_RET(*this, );
   TENSOR_CHECK_EMPTY_RET(other, );
   TENSOR_CHECK_DEVICE_RET(*this, other, );
+  TENSOR_CHECK_DTYPE_RET(*this, other, );
   cow();
   ops_->div_(*this, other);
 }
@@ -1511,11 +1535,14 @@ TensorImpl TensorImpl::matmul(const TensorImpl &a, const TensorImpl &b) {
 
   retShape[retDimCnt - 2] = m;
   retShape[retDimCnt - 1] = n;
+
+
+
   TensorImpl retTensor = shape(retShape, a.device_);
+
   if (retDimCnt > 2) {
     // batched matrix multiply with broadcasting
     int32_t batchSize = retTensor.elemCount_ / (m * n);
-
     Shape aStrides = a.strides();
     Shape bStrides = b.strides();
     while (aStrides.size() < retTensor.dimCount_) {
@@ -1524,7 +1551,6 @@ TensorImpl TensorImpl::matmul(const TensorImpl &a, const TensorImpl &b) {
     while (bStrides.size() < retTensor.dimCount_) {
       bStrides.insert(bStrides.begin(), 0);
     }
-
     for (int32_t batch = 0; batch < batchSize; batch++) {
       int32_t aOffset = 0;
       int32_t bOffset = 0;
@@ -1539,12 +1565,15 @@ TensorImpl TensorImpl::matmul(const TensorImpl &a, const TensorImpl &b) {
           bOffset += index * bStrides[i];
         }
       }
-
+      if (a.type_ == Dtype::float16 || a.type_ == Dtype::bfloat16){
+         aOffset /= 2;
+         bOffset /= 2;
+      }
       a.ops_->gemm(retTensor.data_ + batch * m * n, a.data_ + aOffset,
-                   b.data_ + bOffset, m, k, n, false, false);
-    }
-  } else {
-    a.ops_->gemm(retTensor.data_, a.data_, b.data_, m, k, n, false, false);
+                   b.data_ + bOffset, m, k, n, false, false, a.type_, retTensor.type_);
+      }
+    } else {
+    a.ops_->gemm(retTensor.data_, a.data_, b.data_, m, k, n, false, false, a.type_, retTensor.type_);
     if (prependA) {
       retTensor.reshape_({n});
     }
@@ -1639,8 +1668,8 @@ TensorImpl TensorImpl::matmulTrans(const TensorImpl &a, const TensorImpl &b,
       TensorOperations::error(__FUNCTION__, TensorError_ShapeNotAligned);
       return {};
     }
-    TensorImpl ret = shape({m, n}, a.device_);
-    a.ops_->gemm(ret.data_, a.data_, b.data_, m, k, n, transA, transB);
+    TensorImpl ret = shape({m, n}, a.device_, a.type_);
+    a.ops_->gemm(ret.data_, a.data_, b.data_, m, k, n, transA, transB, a.type(), ret.type());
     return ret;
   }
 

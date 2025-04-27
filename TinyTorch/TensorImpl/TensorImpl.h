@@ -26,6 +26,7 @@ class TensorOpsCUDA;
 #endif
 
 struct Storage {
+
   Storage(size_t nbytes, Device device, Dtype T = Dtype
           ::float32);
   ~Storage();
@@ -33,7 +34,7 @@ struct Storage {
   static TensorOperations *getOps(Device device);
   float *data_ = nullptr;
   size_t nbytes_ = 0;
-  Dtype type_ = Dtype::float32;
+
   TensorOperations *ops_ = nullptr;
 };
 
@@ -67,7 +68,7 @@ class TensorImpl {
                       Device device = getDefaultDevice());
 
   static TensorImpl shape(const Shape &shape,
-                          Device device = getDefaultDevice());
+                          Device device = getDefaultDevice(), Dtype type = getDefaultType());
   static TensorImpl scalar(Device device = getDefaultDevice());
   static TensorImpl scalar(const float &value,
                            Device device = getDefaultDevice());
@@ -419,7 +420,9 @@ class TensorImpl {
 
   // properties
   Device device() const { return device_; }
+
   Dtype type() const { return type_; }
+
   bool empty() const { return elemCount_ == 0; }
 
   int32_t dim() const { return dimCount_; }

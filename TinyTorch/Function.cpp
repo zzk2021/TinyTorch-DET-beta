@@ -852,10 +852,8 @@ TensorImpl FuncConv2D::forward(const std::vector<const Tensor*>& inputs) {
   int32_t height = input.shape()[2];
   int32_t width = input.shape()[3];
   Size2D kernelSize = {weight.shape()[2], weight.shape()[3]};
-
   auto outH = (height - kernelSize.h + 2 * padding_.h) / stride_.h + 1;
   auto outW = (width - kernelSize.w + 2 * padding_.w) / stride_.w + 1;
-
   col_ = input.im2col(kernelSize, stride_, padding_);
   auto colW = TensorImpl::reshape(weight, {outChannels, -1});
   auto ret = TensorImpl::matmulTrans(col_, colW, false, true);

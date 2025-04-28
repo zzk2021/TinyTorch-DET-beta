@@ -142,28 +142,43 @@ cublasHandle_t TensorOpsCUDA::getCublasHandle() {
   return blasHandle_;
 }
 
-TensorCudaCtx TensorOpsCUDA::getTensorCtx(const TensorImpl& t) {
-  TensorCudaCtx ret{};
+template <typename T>
+TensorCudaCtx<T> TensorOpsCUDA::getTensorCtx(const TensorImpl& t) {
+  TensorCudaCtx<T> ret{};
   ret.dimCount_ = t.dimCount_;
   ret.elemCount_ = t.elemCount_;
   memcpy(ret.shape_, t.shape_.data(), t.dimCount_ * sizeof(int32_t));
   memcpy(ret.strides_, t.strides_.data(), t.dimCount_ * sizeof(int32_t));
-  ret.type_ = t.type_;
-  ret.data_ = t.data_;
+  ret.data_ = reinterpret_cast<T*>(t.data_);
   return ret;
 }
 
 template <typename OP>
 void TensorOpsCUDA::opSingle_(TensorImpl& t) const {
-  kSingleOp_<OP>
-      <<<getGridSize(t.elemCount_), getBlockSize()>>>(t.data_, t.elemCount_);
+  if (t.type_ == Dtype::float16)
+    kSingleOp_<OP, half><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+       reinterpret_cast<half*>(t.data_), t.elemCount_);
+  if (t.type_ == Dtype::bfloat16)
+    kSingleOp_<OP, __nv_bfloat16><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<__nv_bfloat16*> (t.data_) , t.elemCount_);
+  else
+    kSingleOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+       t.data_, t.elemCount_);
   CUDA_KERNEL_CHECK();
 }
 
 template <typename OP>
 TensorImpl TensorOpsCUDA::opSingle(const TensorImpl& t) const {
-  auto result = TensorImpl::shape(t.shape(), t.device_);
-  kSingleOp<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+  auto result = TensorImpl::shape(t.shape(), t.device_, t.type_);
+
+  if (t.type_ == Dtype::float16)
+    kSingleOp<OP, half><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(t.data_), t.elemCount_);
+  if (t.type_ == Dtype::bfloat16)
+    kSingleOp<OP, __nv_bfloat16><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<__nv_bfloat16*>(result.data_),reinterpret_cast<__nv_bfloat16*> (t.data_) , t.elemCount_);
+  else
+    kSingleOp<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(
       result.data_, t.data_, t.elemCount_);
   CUDA_KERNEL_CHECK();
   return result;
@@ -174,19 +189,17 @@ TensorImpl TensorOpsCUDA::opPair(const TensorImpl& a,
                                  const TensorImpl& b) const {
   auto result = TensorImpl::shape(a.shape(), a.device_, a.type_);
   if (a.type() == Dtype::float32)
-    kPairOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+    kPairOp<OP, float><<<getGridSize(result.elemCount_), getBlockSize()>>>(
       result.data_, a.data_, b.data_, result.elemCount_);
   else if (a.type() == Dtype::bfloat16){
-    result.to_(Dtype::bfloat16);
-    kPairOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+    kPairOp<OP, __nv_bfloat16><<<getGridSize(result.elemCount_), getBlockSize()>>>(
       reinterpret_cast<__nv_bfloat16*>(result.data_), reinterpret_cast<__nv_bfloat16*>(a.data_),
       reinterpret_cast<__nv_bfloat16*>(b.data_), result.elemCount_);
   }
   else if (a.type() == Dtype::float16){
-    result.to_(Dtype::float16);
-    kPairOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__half*>(result.data_), reinterpret_cast<__half*>(a.data_),
-      reinterpret_cast<__half*>(b.data_), result.elemCount_);
+    kPairOp<OP, half><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(a.data_),
+      reinterpret_cast<half*>(b.data_), result.elemCount_);
   }
   CUDA_KERNEL_CHECK();
   return result;
@@ -194,10 +207,21 @@ TensorImpl TensorOpsCUDA::opPair(const TensorImpl& a,
 
 template <typename OP>
 TensorImpl TensorOpsCUDA::opPair(const TensorImpl& a, float b) const {
-  auto result = TensorImpl::shape(a.shape(), a.device_);
-  kPairScalarSecondOp<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
+  auto result = TensorImpl::shape(a.shape(), a.device_, a.type_);
+
+  if (a.type() == Dtype::float32)
+    kPairScalarSecondOp<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
       result.data_, a.data_, b, a.elemCount_);
 
+  else if (a.type() == Dtype::bfloat16)
+    kPairScalarSecondOp<OP, __nv_bfloat16><<<getGridSize(a.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<__nv_bfloat16*>(result.data_), reinterpret_cast<__nv_bfloat16*>(a.data_),
+      static_cast<__nv_bfloat16>(b), a.elemCount_);
+
+  else if (a.type() == Dtype::float16)
+    kPairScalarSecondOp<OP, half><<<getGridSize(a.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(a.data_),
+      static_cast<half>(b), a.elemCount_);
 
   CUDA_KERNEL_CHECK();
   return result;
@@ -205,9 +229,24 @@ TensorImpl TensorOpsCUDA::opPair(const TensorImpl& a, float b) const {
 
 template <typename OP>
 TensorImpl TensorOpsCUDA::opPair(float a, const TensorImpl& b) const {
-  auto result = TensorImpl::shape(b.shape(), b.device_);
-  kPairScalarFirstOp<OP><<<getGridSize(b.elemCount_), getBlockSize()>>>(
+  auto result = TensorImpl::shape(b.shape(), b.device_, b.type_);
+
+  if (b.type() == Dtype::float32)
+    kPairScalarFirstOp<OP, float><<<getGridSize(b.elemCount_), getBlockSize()>>>(
       result.data_, a, b.data_, b.elemCount_);
+
+  else if (b.type() == Dtype::bfloat16)
+    kPairScalarFirstOp<OP, __nv_bfloat16><<<getGridSize(b.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<__nv_bfloat16*>(result.data_),
+       static_cast<__nv_bfloat16>(a),
+      reinterpret_cast<__nv_bfloat16*>(b.data_), b.elemCount_);
+
+  else if (b.type() == Dtype::float16)
+    kPairScalarFirstOp<OP, half><<<getGridSize(b.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<half*>(result.data_),
+      static_cast<half>(a),
+      reinterpret_cast<half*>(b.data_), b.elemCount_);
+
   CUDA_KERNEL_CHECK();
   return result;
 }
@@ -216,15 +255,21 @@ template <typename OP>
 TensorImpl TensorOpsCUDA::opPairScalarFirst(const TensorImpl& a,
                                             const TensorImpl& b) const {
   auto result = TensorImpl::shape(b.shape(), b.device_, b.type_);
-  if (b.type_ == Dtype::float16)
-    kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(a.data_), reinterpret_cast<half*>(b.data_), result.elemCount_);
-  else if (b.type_ == Dtype::bfloat16)
-    kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__nv_bfloat16*>(result.data_), reinterpret_cast<__nv_bfloat16*>(a.data_), reinterpret_cast<__nv_bfloat16*>(b.data_), result.elemCount_);
-  else
-    kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+
+  if (b.type() == Dtype::float32)
+    kPairScalarFirstOp<OP, float><<<getGridSize(result.elemCount_), getBlockSize()>>>(
       result.data_, a.data_, b.data_, result.elemCount_);
+
+  else if (b.type() == Dtype::bfloat16)
+    kPairScalarFirstOp<OP, __nv_bfloat16><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<__nv_bfloat16*>(result.data_), reinterpret_cast<__nv_bfloat16*>(a.data_),
+      reinterpret_cast<__nv_bfloat16*>(b.data_), result.elemCount_);
+
+  else if (b.type() == Dtype::float16)
+    kPairScalarFirstOp<OP, half><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(a.data_),
+      reinterpret_cast<half*>(b.data_), result.elemCount_);
+
   CUDA_KERNEL_CHECK();
   return result;
 }
@@ -232,15 +277,8 @@ TensorImpl TensorOpsCUDA::opPairScalarFirst(const TensorImpl& a,
 template <typename OP>
 TensorImpl TensorOpsCUDA::opPairScalarSecond(const TensorImpl& a,
                                              const TensorImpl& b) const {
-  auto result = TensorImpl::shape(a.shape(), a.device_, a.type_);
-  if (a.type_ == Dtype::float16)
-    kPairScalarSecondOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(a.data_), reinterpret_cast<half*>(b.data_), result.elemCount_);
-  else if (a.type_ == Dtype::bfloat16)
-    kPairScalarSecondOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__nv_bfloat16*>(result.data_), reinterpret_cast<__nv_bfloat16*>(a.data_), reinterpret_cast<__nv_bfloat16*>(b.data_), result.elemCount_);
-  else
-    kPairScalarSecondOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+  auto result = TensorImpl::shape(a.shape(), a.device_);
+  kPairScalarSecondOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
       result.data_, a.data_, b.data_, result.elemCount_);
   CUDA_KERNEL_CHECK();
   return result;
@@ -248,48 +286,36 @@ TensorImpl TensorOpsCUDA::opPairScalarSecond(const TensorImpl& a,
 
 template <typename OP>
 void TensorOpsCUDA::opPair_(TensorImpl& t, float b) const {
-   if (t.type_ == Dtype::float16)
-    kPairScalarSecondOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<half*>(t.data_),  static_cast<half>(b), t.elemCount_);
-  else if (t.type_ == Dtype::bfloat16)
-    kPairScalarSecondOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__nv_bfloat16*>(t.data_), static_cast<__nv_bfloat16>(b), t.elemCount_);
-  else
-    kPairScalarSecondOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(t.data_, b, t.elemCount_);
+
+  if (t.type() == Dtype::float32)
+    kPairScalarSecondOp_<OP, float><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+      t.data_, b, t.elemCount_);
+
+  else if (t.type() == Dtype::bfloat16)
+    kPairScalarSecondOp_<OP, __nv_bfloat16><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<__nv_bfloat16*>(t.data_), __float2bfloat16(b),
+      t.elemCount_);
+
+  else if (t.type() == Dtype::float16)
+    kPairScalarSecondOp_<OP, half><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+      reinterpret_cast<half*>(t.data_), __float2half(b),
+      t.elemCount_);
 
   CUDA_KERNEL_CHECK();
 }
 
 template <typename OP>
 void TensorOpsCUDA::opPair_(TensorImpl& t, const TensorImpl& b) const {
-  if (t.type_ == Dtype::float16)
-    kPairOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<half*>(t.data_),  reinterpret_cast<half*>(b.data_),
-      t.elemCount_);
-  else if (t.type_ == Dtype::bfloat16)
-    kPairOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__nv_bfloat16*>(t.data_), reinterpret_cast<__nv_bfloat16*>(b.data_),
-      t.elemCount_);
-  else
-    kPairOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(t.data_,
-      b.data_, t.elemCount_);
+  kPairOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(t.data_, b.data_,
+                                                              t.elemCount_);
   CUDA_KERNEL_CHECK();
 }
 
 template <typename OP>
 void TensorOpsCUDA::opPairScalarFirst_(TensorImpl& a,
                                        const TensorImpl& b) const {
-  auto result = TensorImpl::shape(b.shape_, b.device_, b.type_);
-  if (b.type_ == Dtype::float16)
-    kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__half*>(result.data_), reinterpret_cast<__half*>(a.data_),
-      reinterpret_cast<__half*>(b.data_), result.elemCount_);
-  else if (b.type_ == Dtype::bfloat16)
-    kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__nv_bfloat16*>(result.data_), reinterpret_cast<__nv_bfloat16*>(a.data_),
-      reinterpret_cast<__nv_bfloat16*>(b.data_), result.elemCount_);
-  else
-    kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+  auto result = TensorImpl::shape(b.shape_, b.device_);
+  kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
       result.data_, a.data_, b.data_, result.elemCount_);
   CUDA_KERNEL_CHECK();
   a = std::move(result);
@@ -298,68 +324,37 @@ void TensorOpsCUDA::opPairScalarFirst_(TensorImpl& a,
 template <typename OP>
 void TensorOpsCUDA::opPairScalarSecond_(TensorImpl& a,
                                         const TensorImpl& b) const {
-
-  if (a.type_ == Dtype::float16)
-    kPairScalarSecondOp_<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__half*>(a.data_),  reinterpret_cast<__half*>(b.data_), a.elemCount_);
-  else if (a.type_ == Dtype::bfloat16)
-    kPairScalarSecondOp_<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
-      reinterpret_cast<__nv_bfloat16*>(a.data_), reinterpret_cast<__nv_bfloat16*>(b.data_), a.elemCount_);
-  else
-    kPairScalarSecondOp_<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(a.data_, b.data_, a.elemCount_);
+  kPairScalarSecondOp_<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
+      a.data_, b.data_, a.elemCount_);
   CUDA_KERNEL_CHECK();
 }
 
-template <typename OP>
+template <typename OP, typename T>
 void TensorOpsCUDA::broadcastImpl(TensorImpl& result, const TensorImpl& a,
                                   const TensorImpl& b) const {
   // fast broadcast with a
+
   if (b.elemCount_ == result.elemCount_) {
+
     if (isLeadingOnes(a.shape())) {
-          if (a.type_ == Dtype::float16)
-            kBroadcastOpFast<OP, true, true><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-                                                                              reinterpret_cast<__half*>(result.data_),
-                                                                               reinterpret_cast<__half*>(a.data_),
-                                                                               reinterpret_cast<__half*>(b.data_),
-                                                                                a.elemCount_,
-                                                                                result.elemCount_);
-          else if (a.type_ == Dtype::bfloat16)
-            kBroadcastOpFast<OP, true, true><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-                                                                              reinterpret_cast<__nv_bfloat16*>(result.data_),
-                                                                               reinterpret_cast<__nv_bfloat16*>(a.data_),
-                                                                               reinterpret_cast<__nv_bfloat16*>(b.data_),
-                                                                                a.elemCount_,
-                                                                                result.elemCount_);
-          else
-            kBroadcastOpFast<OP, true, true><<<getGridSize(result.elemCount_), getBlockSize()>>>(result.data_,
-                                                                                a.data_, b.data_,
-                                                                                a.elemCount_,
-                                                                                result.elemCount_);
+        kBroadcastOpFast<OP, true, true, T>
+              <<<getGridSize(result.elemCount_), getBlockSize()>>>(
+                  reinterpret_cast<T*>(result.data_),
+                  reinterpret_cast<T*>(a.data_),
+                  reinterpret_cast<T*>(b.data_),
+                  a.elemCount_, result.elemCount_);
 
       CUDA_KERNEL_CHECK();
       return;
     }
     if (isTrailingOnes(a.shape())) {
-        if (a.type_ == Dtype::float16)
-            kBroadcastOpFast<OP, false, true><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-                                                                              reinterpret_cast<__half*>(result.data_),
-                                                                               reinterpret_cast<__half*>(a.data_),
-                                                                               reinterpret_cast<__half*>(b.data_),
-                                                                                result.elemCount_ / a.elemCount_,
-                                                                                result.elemCount_);
-          else if (a.type_ == Dtype::bfloat16)
-            kBroadcastOpFast<OP, false, true><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-                                                                              reinterpret_cast<__nv_bfloat16*>(result.data_),
-                                                                               reinterpret_cast<__nv_bfloat16*>(a.data_),
-                                                                               reinterpret_cast<__nv_bfloat16*>(b.data_),
-                                                                                result.elemCount_ / a.elemCount_,
-                                                                                result.elemCount_);
-          else
-            kBroadcastOpFast<OP, false, true><<<getGridSize(result.elemCount_), getBlockSize()>>>(result.data_,
-                                                                                a.data_, b.data_,
-                                                                                result.elemCount_ / a.elemCount_,
-                                                                                result.elemCount_);
-
+      kBroadcastOpFast<OP, false, true, T>
+          <<<getGridSize(result.elemCount_), getBlockSize()>>>(
+              reinterpret_cast<T*>(result.data_),
+              reinterpret_cast<T*>(a.data_),
+              reinterpret_cast<T*>(b.data_),
+              result.elemCount_ / a.elemCount_,
+              result.elemCount_);
       CUDA_KERNEL_CHECK();
       return;
     }
@@ -368,58 +363,32 @@ void TensorOpsCUDA::broadcastImpl(TensorImpl& result, const TensorImpl& a,
   // fast broadcast with b
   if (a.elemCount_ == result.elemCount_) {
     if (isLeadingOnes(b.shape())) {
-      if (a.type_ == Dtype::float16)
-        kBroadcastOpFast<OP, true, false><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-                                                                              reinterpret_cast<__half*>(result.data_),
-                                                                               reinterpret_cast<__half*>(a.data_),
-                                                                               reinterpret_cast<__half*>(b.data_),
-                                                                                a.elemCount_,
-                                                                                result.elemCount_);
-      else if (a.type_ == Dtype::bfloat16)
-        kBroadcastOpFast<OP, true, false><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-                                                                              reinterpret_cast<__nv_bfloat16*>(result.data_),
-                                                                               reinterpret_cast<__nv_bfloat16*>(a.data_),
-                                                                               reinterpret_cast<__nv_bfloat16*>(b.data_),
-                                                                                a.elemCount_,
-                                                                                result.elemCount_);
-      else
-        kBroadcastOpFast<OP, true, false><<<getGridSize(result.elemCount_), getBlockSize()>>>(result.data_,
-                                                                                a.data_, b.data_,
-                                                                                a.elemCount_,
-                                                                                result.elemCount_);
-
+      kBroadcastOpFast<OP, true, false, T>
+          <<<getGridSize(result.elemCount_), getBlockSize()>>>(
+              reinterpret_cast<T*>(result.data_),
+              reinterpret_cast<T*>(a.data_),
+              reinterpret_cast<T*>(b.data_),
+              b.elemCount_, result.elemCount_);
       CUDA_KERNEL_CHECK();
       return;
     }
 
     if (isTrailingOnes(b.shape())) {
-      if (a.type_ == Dtype::float16)
-        kBroadcastOpFast<OP, false, false><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-                                                                              reinterpret_cast<__half*>(result.data_),
-                                                                               reinterpret_cast<__half*>(a.data_),
-                                                                               reinterpret_cast<__half*>(b.data_),
-                                                                                result.elemCount_ / b.elemCount_,
-                                                                                result.elemCount_);
-      else if (a.type_ == Dtype::bfloat16)
-        kBroadcastOpFast<OP, false, false><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-                                                                              reinterpret_cast<__nv_bfloat16*>(result.data_),
-                                                                               reinterpret_cast<__nv_bfloat16*>(a.data_),
-                                                                               reinterpret_cast<__nv_bfloat16*>(b.data_),
-                                                                                result.elemCount_ / b.elemCount_,
-                                                                                result.elemCount_);
-      else
-        kBroadcastOpFast<OP, false, false><<<getGridSize(result.elemCount_), getBlockSize()>>>(result.data_,
-                                                                                a.data_, b.data_,
-                                                                                result.elemCount_ / b.elemCount_,
-                                                                                result.elemCount_);
+      kBroadcastOpFast<OP, false, false, T>
+          <<<getGridSize(result.elemCount_), getBlockSize()>>>(
+              reinterpret_cast<T*>(result.data_),
+              reinterpret_cast<T*>(a.data_),
+              reinterpret_cast<T*>(b.data_),
+              result.elemCount_ / b.elemCount_,
+              result.elemCount_);
       CUDA_KERNEL_CHECK();
       return;
     }
   }
 
-  const auto ctxA = getTensorCtx(a);
-  const auto ctxB = getTensorCtx(b);
-  const auto ctxC = getTensorCtx(result);
+  const auto ctxA = getTensorCtx<T>(a);
+  const auto ctxB = getTensorCtx<T>(b);
+  const auto ctxC = getTensorCtx<T>(result);
   kBroadcastOpCommon<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
       ctxC, ctxA, ctxB, result.elemCount_);
   CUDA_KERNEL_CHECK();
@@ -439,11 +408,12 @@ TensorImpl TensorOpsCUDA::opPairBroadcast(const TensorImpl& a,
     return opPair<OP>(a, b);
   }
 
-  auto result = TensorImpl::shape(retShape, a.device_, a.type_);
-  result.to_(a.type_);
+  auto result = TensorImpl::shape(retShape, a.device_);
   broadcastImpl<OP>(result, a, b);
   return result;
 }
+
+
 
 template <typename OP>
 void TensorOpsCUDA::opPairBroadcast_(TensorImpl& a, const TensorImpl& b) const {
@@ -458,17 +428,24 @@ void TensorOpsCUDA::opPairBroadcast_(TensorImpl& a, const TensorImpl& b) const {
     return;
   }
   auto result = TensorImpl::shape(retShape, a.device_, a.type_);
-  broadcastImpl<OP>(result, a, b);
+
+  if (a.type_ == Dtype::float32)
+    broadcastImpl<OP>(result, a, b);
+  else if (a.type_ == Dtype::float16)
+    broadcastImpl<OP, half>(result, a, b);
+  else if (a.type_ == Dtype::bfloat16)
+    broadcastImpl<OP, __nv_bfloat16>(result, a, b);
+
   a = std::move(result);
 }
 
-template <typename OP>
-void TensorOpsCUDA::reduceAllImpl(float* dOutput, const float* dInput,
-                                  int32_t n, int32_t m, KernelFunc<OP> kernel) {
+template <typename OP ,typename T>
+void TensorOpsCUDA::reduceAllImpl(T* dOutput, const T* dInput,
+                                  int32_t n, int32_t m, KernelFunc<OP, T> kernel) {
   auto blocks = getGridSize(n);
 
-  float* dTmp = nullptr;
-  allocate(reinterpret_cast<void**>(&dTmp), m * blocks * sizeof(float));
+  T* dTmp = nullptr;
+  allocate(reinterpret_cast<void**>(&dTmp), m * blocks * sizeof(T));
 
   kernel<<<m * blocks, getBlockSize()>>>(dTmp, dInput, n, m);
   CUDA_KERNEL_CHECK();
@@ -478,14 +455,14 @@ void TensorOpsCUDA::reduceAllImpl(float* dOutput, const float* dInput,
     kReduceAll<OP><<<m * blocks, getBlockSize()>>>(dTmp, dTmp, currBlocks, m);
     CUDA_KERNEL_CHECK();
   }
-  copyOnDevice(dOutput, dTmp, m * sizeof(float));
+  copyOnDevice(dOutput, dTmp, m * sizeof(T));
   deallocate(dTmp);
 }
 
-template <typename OP>
-void TensorOpsCUDA::reduceAll(float* dOutput, const float* dInput, int32_t n,
+template <typename OP, typename T>
+void TensorOpsCUDA::reduceAll(T* dOutput, const T* dInput, int32_t n,
                               int32_t m) {
-  reduceAllImpl<OP>(dOutput, dInput, n, m, kReduceAll<OP>);
+  reduceAllImpl<OP, T>(dOutput, dInput, n, m, kReduceAll<OP, T>);
 }
 
 template <typename OP>
@@ -494,10 +471,11 @@ void TensorOpsCUDA::reduceAllIdx(float* dOutput, const float* dInput, int32_t n,
   reduceAllImpl<OP>(dOutput, dInput, n, m, kReduceAllIdx<OP>);
 }
 
-template <typename OP>
-void TensorOpsCUDA::reduceAllLastDim(float* dOutput, const float* dInput,
+template <typename OP, typename T>
+void TensorOpsCUDA::reduceAllLastDim(T* dOutput, const T* dInput,
                                      int32_t n, int32_t m) {
-  reduceAllImpl<OP>(dOutput, dInput, n, m, kReduceAllLastDim<OP>);
+  reduceAllImpl<OP, T>(dOutput, dInput, n, m, kReduceAllLastDim<OP, T>);
+
 }
 
 template <typename OP, typename T>
@@ -513,15 +491,16 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::reduceDim(const TensorImpl& t,
   }
 
   const auto retShape = getReduceShape(t, dim, false);
-  auto values = TensorImpl::shape(retShape, t.device_);
+  auto values = TensorImpl::shape(retShape, t.device_, t.type_);
   auto indices = TensorImpl::shape(retShape, t.device_);
 
   if (dim == t.dimCount_ - 1) {
     kReduceLastDim<OP, T><<<getGridSize(t.elemCount_), getBlockSize()>>>(
-        values.data_, indices.data_, t.data_, t.shape_[dim], values.elemCount_);
+        reinterpret_cast<T*>(values.data_), indices.data_, reinterpret_cast<T*>(t.data_),
+        t.shape_[dim], values.elemCount_);
   } else {
-    auto ctxT = getTensorCtx(t);
-    auto ctxValues = getTensorCtx(values);
+    auto ctxT = getTensorCtx<T>(t);
+    auto ctxValues = getTensorCtx<T>(values);
     kReduceDim<OP, T><<<getGridSize(t.elemCount_), getBlockSize()>>>(
         ctxValues, indices.data_, ctxT, dim, ctxValues.elemCount_);
   }
@@ -532,6 +511,9 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::reduceDim(const TensorImpl& t,
     values.reshape_(shapeKeepDims);
     indices.reshape_(shapeKeepDims);
   }
+
+  // values as the same type as origin data
+  // but indices is float32
   return {values, indices};
 }
 
@@ -541,7 +523,7 @@ void TensorOpsCUDA::transpose2D(T* out, const T* in, int32_t width,
   dim3 blockSize(TRANSPOSE_TILE_DIM, TRANSPOSE_TILE_DIM);
   dim3 gridSize((width + TRANSPOSE_TILE_DIM - 1) / TRANSPOSE_TILE_DIM,
                 (height + TRANSPOSE_TILE_DIM - 1) / TRANSPOSE_TILE_DIM);
-  kTranspose<T><<<gridSize, blockSize>>>(out, in, width, height);
+  kTranspose<<<gridSize, blockSize>>>(out, in, width, height);
   CUDA_KERNEL_CHECK();
 }
 
@@ -966,17 +948,30 @@ TensorImpl TensorOpsCUDA::max(const TensorImpl& t) {
   if (t.dimCount_ == 0) {
     return t;
   }
-  auto ret = TensorImpl::scalar(t.device_);
-  reduceAll<OpCudaReduceMax>(ret.data_, t.data_, t.elemCount_);
+  auto ret = TensorImpl::scalar(t.device_, t.type_);
+
+  if (t.type_ == Dtype::float16)
+    reduceAll<OpCudaReduceMax>(reinterpret_cast<half*>(ret.data_),reinterpret_cast<half*>(t.data_), t.elemCount_);
+  else if (t.type_ == Dtype::bfloat16)
+    reduceAll<OpCudaReduceMax>(reinterpret_cast<__nv_bfloat16*>(ret.data_),reinterpret_cast<__nv_bfloat16*>(t.data_), t.elemCount_);
+  else
+    reduceAll<OpCudaReduceMax>(ret.data_, t.data_, t.elemCount_);
   return ret;
 }
+
 
 TensorImpl TensorOpsCUDA::sum(const TensorImpl& t) {
   if (t.dimCount_ == 0) {
     return t;
   }
-  auto ret = TensorImpl::scalar(t.device_);
-  reduceAll<OpCudaReduceSum>(ret.data_, t.data_, t.elemCount_);
+  auto ret = TensorImpl::scalar(t.device_, t.type_);
+
+  if (t.type_ == Dtype::float16)
+    reduceAll<OpCudaReduceSum>(reinterpret_cast<half*>(ret.data_),reinterpret_cast<half*>(t.data_), t.elemCount_);
+  else if (t.type_ == Dtype::bfloat16)
+    reduceAll<OpCudaReduceSum>(reinterpret_cast<__nv_bfloat16*>(ret.data_),reinterpret_cast<__nv_bfloat16*>(t.data_), t.elemCount_);
+  else
+    reduceAll<OpCudaReduceSum>(ret.data_, t.data_, t.elemCount_);
   return ret;
 }
 
@@ -984,8 +979,15 @@ TensorImpl TensorOpsCUDA::mean(const TensorImpl& t) {
   if (t.dimCount_ == 0) {
     return t;
   }
-  auto ret = TensorImpl::scalar(t.device_);
-  reduceAll<OpCudaReduceSum>(ret.data_, t.data_, t.elemCount_);
+  auto ret = TensorImpl::scalar(t.device_, t.type_);
+
+  if (t.type_ == Dtype::float16)
+    reduceAll<OpCudaReduceSum>(reinterpret_cast<half*>(ret.data_),reinterpret_cast<half*>(t.data_), t.elemCount_);
+  else if (t.type_ == Dtype::bfloat16)
+    reduceAll<OpCudaReduceSum>(reinterpret_cast<__nv_bfloat16*>(ret.data_),reinterpret_cast<__nv_bfloat16*>(t.data_), t.elemCount_);
+  else
+    reduceAll<OpCudaReduceSum>(ret.data_, t.data_, t.elemCount_);
+
   const auto r = 1.f / static_cast<float>(t.elemCount_);
   mul_(ret, r);
   return ret;
@@ -1045,9 +1047,14 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::max(const TensorImpl& t,
                                                      int32_t dim,
                                                      bool keepDims) {
   if (t.dimCount_ == 0) {
-    return {t, TensorImpl::scalar(0, t.device_)};
+    return {t, TensorImpl::scalar(0, t.device_, t.type_)};
   }
-  return reduceDim<OpCudaReduceMax>(t, dim, keepDims);
+  if (t.type_ == Dtype::float16)
+    return reduceDim<OpCudaReduceMax, half>(t, dim, keepDims);
+  else if(t.type_ == Dtype::bfloat16)
+    return reduceDim<OpCudaReduceMax, __nv_bfloat16>(t, dim, keepDims);
+  else
+    return reduceDim<OpCudaReduceMax>(t, dim, keepDims);
 }
 
 TensorImpl TensorOpsCUDA::sum(const TensorImpl& t,
@@ -1079,18 +1086,58 @@ TensorImpl TensorOpsCUDA::sum(const TensorImpl& t,
     // first dim
     if (d == 0) {
       const auto dimSize = t.shape_.front();
-      const auto tmp = TensorImpl::shape(t.shape_, t.device_);
-      transpose2D(tmp.data_, t.data_, ret.elemCount_, dimSize);
-      reduceAllLastDim<OpCudaReduceSum>(ret.data_, tmp.data_, dimSize,
-                                        ret.elemCount_);
+      const auto tmp = TensorImpl::shape(t.shape_, t.device_, t.type_);
+      if (t.type_ == Dtype::float16)
+        transpose2D(reinterpret_cast<half*>(tmp.data_),
+                    reinterpret_cast<half*>(t.data_),
+                    ret.elemCount_,
+                    dimSize);
+      else if (t.type_ == Dtype::bfloat16)
+        transpose2D(reinterpret_cast<__nv_bfloat16*>(tmp.data_),
+                    reinterpret_cast<__nv_bfloat16*>(t.data_),
+                    ret.elemCount_,
+                    dimSize);
+      else
+        transpose2D(tmp.data_, t.data_, ret.elemCount_, dimSize);
+
+
+      if (t.type_ == Dtype::float16)
+        reduceAllLastDim<OpCudaReduceSum, half>(reinterpret_cast<half*>(ret.data_),
+                    reinterpret_cast<half*>(tmp.data_),
+                    dimSize,
+                    ret.elemCount_);
+      else if (t.type_ == Dtype::bfloat16)
+        reduceAllLastDim<OpCudaReduceSum, __nv_bfloat16>(reinterpret_cast<__nv_bfloat16*>(ret.data_),
+                    reinterpret_cast<__nv_bfloat16*>(tmp.data_),
+                    dimSize,
+                    ret.elemCount_);
+      else
+        reduceAllLastDim<OpCudaReduceSum, float>(ret.data_,
+                    tmp.data_,
+                    dimSize,
+                    ret.elemCount_);
+
       return ret;
     }
 
     // last dim
     if (d == t.dimCount_ - 1) {
       const auto dimSize = t.shape_.back();
-      reduceAllLastDim<OpCudaReduceSum>(ret.data_, t.data_, dimSize,
-                                        ret.elemCount_);
+      if (t.type_ == Dtype::float16)
+        reduceAllLastDim<OpCudaReduceSum, half>(reinterpret_cast<half*>(ret.data_),
+                    reinterpret_cast<half*>(t.data_),
+                    dimSize,
+                    ret.elemCount_);
+      else if (t.type_ == Dtype::bfloat16)
+        reduceAllLastDim<OpCudaReduceSum, __nv_bfloat16>(reinterpret_cast<__nv_bfloat16*>(ret.data_),
+                    reinterpret_cast<__nv_bfloat16*>(t.data_),
+                    dimSize,
+                    ret.elemCount_);
+      else
+        reduceAllLastDim<OpCudaReduceSum, float>(ret.data_,
+                    t.data_,
+                    dimSize,
+                    ret.elemCount_);
       return ret;
     }
   }
@@ -1157,8 +1204,8 @@ TensorImpl TensorOpsCUDA::permute(const TensorImpl& t,
                                   const std::vector<int32_t>& dims) {
   auto retShape = t.shape_;
   reorderIndices(retShape.data(), dims);
-  auto ret = TensorImpl::shape(retShape, t.device_);
-  ret.to_(t.type_);
+  auto ret = TensorImpl::shape(retShape, t.device_, t.type_);
+
   auto ctxT = getTensorCtx(t);
   auto ctxRet = getTensorCtx(ret);
 
@@ -1169,10 +1216,17 @@ TensorImpl TensorOpsCUDA::permute(const TensorImpl& t,
   return ret;
 }
 
+
 TensorImpl TensorOpsCUDA::transpose2D(const TensorImpl& t) {
-  auto ret = TensorImpl::shape({t.shape_[1], t.shape_[0]}, t.device_);
-  ret.to_(t.type_);
-  transpose2D(ret.data_, t.data_, t.shape_[1], t.shape_[0]);
+  auto ret = TensorImpl::shape({t.shape_[1], t.shape_[0]}, t.device_, t.type_);
+  if (t.type_ == Dtype::float16)
+      transpose2D(reinterpret_cast<half*>(ret.data_),
+                  reinterpret_cast<half*>(t.data_), t.shape_[1], t.shape_[0]);
+  else if (t.type_ == Dtype::bfloat16)
+      transpose2D(reinterpret_cast<__nv_bfloat16*>(ret.data_),
+                  reinterpret_cast<__nv_bfloat16*>(t.data_), t.shape_[1], t.shape_[0]);
+  else
+      transpose2D(ret.data_, t.data_, t.shape_[1], t.shape_[0]);
   return ret;
 }
 
@@ -1260,8 +1314,8 @@ TensorImpl TensorOpsCUDA::im2col(const TensorImpl& t, Size2D kernel,
       colH, colW);
   else if (t.type_ == Dtype::float16){
       retTensor.to_(Dtype::float16);
-    kIm2Col<__half><<<getGridSize(totalElements), getBlockSize()>>>(
-      reinterpret_cast<__half*>(retTensor.data_), reinterpret_cast<__half*>(t.data_), batch, channels, height, width, outH, outW,
+    kIm2Col<half><<<getGridSize(totalElements), getBlockSize()>>>(
+      reinterpret_cast<half*>(retTensor.data_), reinterpret_cast<half*>(t.data_), batch, channels, height, width, outH, outW,
       kernel.h, kernel.w, stride.h, stride.w, padding.h, padding.w, imStride,
       colH, colW);
     }

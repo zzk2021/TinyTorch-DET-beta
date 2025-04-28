@@ -43,7 +43,7 @@ class Module {
   }
 
   void to(Device device);
-
+  void to(Dtype T);
   void eval() { train(false); }
 
   void train(bool mode = true) { setTraining(mode); }
@@ -200,7 +200,9 @@ class MaxPool2D : public Module {
 class Conv2D : public Module {
  public:
   Conv2D(int32_t inFeatures, int32_t outFeatures, Size2D kernelSize,
-         Size2D stride = 1, Size2D padding = 0, bool bias = true);
+         Size2D stride = 1, Size2D padding = 0, bool bias = true,
+         Dtype fw_type = Dtype::float32,
+         Dtype bw_type = Dtype::float32);
 
   Tensor forward(Tensor &input) override;
   std::vector<Tensor *> parameters() override;
@@ -220,6 +222,8 @@ class Conv2D : public Module {
   bool useBias_;
   Tensor weights_;
   Tensor bias_;
+  Dtype bw_type_;
+  Dtype fw_type_;
 };
 
 class BatchNorm2D : public Module {

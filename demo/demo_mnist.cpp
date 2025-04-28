@@ -11,14 +11,12 @@ using namespace TinyTorch;
 // https://github.com/pytorch/examples/blob/main/mnist/main.py
 class Net : public nn::Module {
  public:
-  Net() { registerModules({conv1, conv21,conv22, dropout1, dropout2, fc1, fc2}); }
+  Net() { registerModules({conv1, conv21, dropout1, dropout2, fc1, fc2}); }
 
   Tensor forward(Tensor &x) override {
     x = conv1(x);
     x = Function::relu(x);
-    Tensor x1 = conv21(x);
-    x = x1 + conv22(x);
-    x = Function::relu(x);
+    x = conv21(x);
     x = Function::maxPool2d(x, 2);
     x = dropout1(x);
     x = Tensor::flatten(x, 1);
@@ -33,7 +31,6 @@ class Net : public nn::Module {
  private:
   nn::Conv2D conv1{1, 32, 3, 1};
   nn::Conv2D conv21{32, 64, 3, 1};
-  nn::Conv2D conv22{32, 64, 3, 1};
   nn::Dropout dropout1{0.25};
   nn::Dropout dropout2{0.5};
   nn::Linear fc1{9216, 128};
@@ -77,11 +74,13 @@ void train(TrainArgs &args, nn::Module &model, Device device,
            data::DataLoader &dataLoader, optim::Optimizer &optimizer,
            int32_t epoch) {
   model.train();
+  model.to(Dtype::float16);
   Timer timer;
   timer.start();
   for (auto [batchIdx, batch] : dataLoader) {
     auto &data = batch[0].to(device);
     auto &target = batch[1].to(device);
+    data.to(Dtype::float16);
     optimizer.zeroGrad();
     auto output = model(data);
     auto loss = Function::nllloss(output, target);

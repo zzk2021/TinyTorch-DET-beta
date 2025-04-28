@@ -16,7 +16,7 @@ namespace TinyTorch {
 #define FETCH_FLOAT2(pointer) (reinterpret_cast<float2*>(&(pointer))[0])
 #define FETCH_FLOAT3(pointer) (reinterpret_cast<float3*>(&(pointer))[0])
 #define FETCH_FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
-
+#define FETCH_HALF2(pointer) (reinterpret_cast<half2*>(&(pointer))[0])
 __global__ void convertFloatToHalfKernel(float* src, __half* dst, size_t count) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < count) {
@@ -45,11 +45,27 @@ __global__ void convertHalfToFloatKernel(const __half* src, float* dst, size_t c
     }
 }
 
+#if CUDART_VERSION < 12080
+__device__ __half htanh(__half a) {
+    __half abs_a = __habs(a);
+    __half one = __float2half(1.0f); // 1.0
+    __half denominator = __hadd(one, abs_a); // 1 + |a|
+    return __hdiv(a, denominator);  // a / (1 + |a|)
+}
+
+__device__ __nv_bfloat16 htanh(__nv_bfloat16 a) {
+    __nv_bfloat16 abs_a = __habs(a);       //
+    __nv_bfloat16 one = __float2bfloat16(1.0f); //  1.0
+    __nv_bfloat16 denominator = __hadd(one, abs_a); // 1 + |a|
+    return __hdiv(a, denominator);  // a / (1 + |a|)
+}
+#endif
+
 struct OpCudaAdd {
   __device__ float operator()(const float a, const float b) const {
     return a + b;
   }
-  __device__ __half operator()(const __half a, const __half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a + b;
   }
   __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -61,7 +77,7 @@ struct OpCudaSub {
   __device__ float operator()(const float a, const float b) const {
     return a - b;
   }
-  __device__ __half operator()(const __half a, const __half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a - b;
   }
   __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -73,7 +89,7 @@ struct OpCudaMul {
   __device__ float operator()(const float a, const float b) const {
     return a * b;
   }
-  __device__ __half operator()(const __half a, const __half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a * b;
   }
   __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -85,7 +101,7 @@ struct OpCudaDiv {
   __device__ float operator()(const float a, const float b) const {
     return a / b;
   }
-  __device__ __half operator()(const __half a, const __half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a / b;
   }
   __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -97,10 +113,10 @@ struct OpCudaPow {
   __device__ float operator()(const float a, const float b) const {
     return pow(a, b);
   }
-    __device__ __half operator()(const __half a, const __half b) const {
+    __device__ float operator()(const half a, const half b) const {
     return hexp(b* hlog2(a));
   }
-    __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+    __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
     return hexp(b* hlog2(a));
   }
 };
@@ -109,7 +125,7 @@ struct OpCudaEq {
   __device__ float operator()(const float a, const float b) const {
     return a == b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __half a, const __half b) const {
+  __device__ float operator()(const half a, const half b) const {
     return a == b ? 1.f : 0.f;
   }
   __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -121,7 +137,7 @@ struct OpCudaNe {
   __device__ float operator()(const float a, const float b) const {
     return a != b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __half a, const __half b) const {
+  __device__ float operator()(const half a, const half b) const {
     return a != b ? 1.f : 0.f;
   }
   __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -133,7 +149,7 @@ struct OpCudaLt {
   __device__ float operator()(const float a, const float b) const {
     return a < b ? 1.f : 0.f;
   }
-    __device__ float operator()(const __half a, const __half b) const {
+    __device__ float operator()(const half a, const half b) const {
     return a < b ? 1.f : 0.f;
   }
     __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -145,7 +161,7 @@ struct OpCudaLe {
   __device__ float operator()(const float a, const float b) const {
     return a <= b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __half a, const __half b) const {
+  __device__ float operator()(const half a, const half b) const {
     return a <= b ? 1.f : 0.f;
   }
   __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -157,7 +173,7 @@ struct OpCudaGt {
   __device__ float operator()(const float a, const float b) const {
     return a > b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __half a, const __half b) const {
+  __device__ float operator()(const half a, const half b) const {
     return a > b ? 1.f : 0.f;
   }
   __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -169,7 +185,7 @@ struct OpCudaGe {
   __device__ float operator()(const float a, const float b) const {
     return a >= b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __half a, const __half b) const {
+  __device__ float operator()(const half a, const half b) const {
     return a >= b ? 1.f : 0.f;
   }
   __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -181,7 +197,7 @@ struct OpCudaMax {
   __device__ float operator()(const float a, const float b) const {
     return max(a, b);
   }
-  __device__ __half operator()(const __half a, const __half b) const {
+  __device__ __half operator()(const half a, const half b) const {
     return __hmax(a, b);
   }
   __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
@@ -410,6 +426,24 @@ __global__ void kFillRandNormal(float* __restrict__ t, const float mean,
   }
 }
 
+__global__ void kFillRandBernoulli(half* __restrict__ t, const half p,
+                                   const unsigned long seed,
+                                   const unsigned long seq, const int n) {
+  const auto index = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
+  if (index < n) {
+    curandStatePhilox4_32_10_t state;
+    curand_init(seed, seq, index, &state);
+    const auto rand = curand_uniform4(&state);
+    const auto rand = curand_(&state);
+    if (index + 1 < n) {
+      FETCH_HALF2(t[index]) =
+          make_half2(rand.x < p ? 1.f : 0.f, rand.y < p ? 1.f : 0.f);
+    } else {
+      if (index < n) t[index] = rand.x < p ? 1.f : 0.f;
+    }
+  }
+}
+
 __global__ void kFillRandBernoulli(float* __restrict__ t, const float p,
                                    const unsigned long seed,
                                    const unsigned long seq, const int n) {
@@ -564,10 +598,10 @@ __global__ void kBroadcastOpFast(T* __restrict__ ret,
   if (index < n) {
     if (First) {
       ret[index] =
-          opFunc(reinterpret_cast<const T*>(a)[Leading ? index % stride : index / stride], reinterpret_cast<const T*>(b)[index]);
+          opFunc(a[Leading ? index % stride : index / stride], b[index]);
     } else {
       ret[index] =
-          opFunc(reinterpret_cast<const T*>(a)[index], reinterpret_cast<const T*>(b)[Leading ? index % stride : index / stride]);
+          opFunc(a[index], b[Leading ? index % stride : index / stride]);
     }
   }
 }
@@ -594,9 +628,9 @@ __device__ void cuOffsetToIndices(int32_t* __restrict__ indices,
   }
 }
 
-template <typename OP>
-__global__ void kBroadcastOpCommon(TensorCudaCtx c, const TensorCudaCtx a,
-                                   const TensorCudaCtx b, const int n) {
+template <typename OP, typename T = float >
+__global__ void kBroadcastOpCommon(TensorCudaCtx<T> c, const TensorCudaCtx<T> a,
+                                   const TensorCudaCtx<T> b, const int n) {
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   const OP opFunc;
 
@@ -621,14 +655,7 @@ __global__ void kBroadcastOpCommon(TensorCudaCtx c, const TensorCudaCtx a,
     }
     const auto aIdx = cuIndicesToOffset(a.strides_, aIndices, a.dimCount_);
     const auto bIdx = cuIndicesToOffset(b.strides_, bIndices, b.dimCount_);
-    if (a.type_ == Dtype::float16)
-      reinterpret_cast<half*>(c.data_)[index] = opFunc(reinterpret_cast<half*>(a.data_)[aIdx],
-                                                       reinterpret_cast<half*>(b.data_)[bIdx]);
-    else if (a.type_ == Dtype::bfloat16)
-      reinterpret_cast<__nv_bfloat16*>(c.data_)[index] = opFunc(reinterpret_cast<__nv_bfloat16*>(a.data_)[aIdx],
-                                                                reinterpret_cast<__nv_bfloat16*>(b.data_)[bIdx]);
-    else
-      c.data_[index] = opFunc(a.data_[aIdx], b.data_[bIdx]);
+    c.data_[index] = opFunc(a.data_[aIdx], b.data_[bIdx]);
   }
 }
 
@@ -649,9 +676,9 @@ struct OpCudaReduceMax {
         if constexpr (std::is_same_v<T, float>) {
             return -FLT_MAX;
         } else if constexpr (std::is_same_v<T, half>) {
-            return CUDART_MIN_DENORM_FP16;
+            return -CUDART_MAX_NORMAL_FP16;
         } else if constexpr (std::is_same_v<T, __nv_bfloat16>) {
-            return CUDART_MIN_DENORM_BF16;
+            return -CUDART_MAX_NORMAL_BF16;
         }
     }
 };
@@ -680,6 +707,7 @@ struct OpCudaReduceMin {
 };
 
 struct OpCudaReduceSum {
+
   __device__ float operator()(const float a, const float b) const {
     return a + b;
   }
@@ -817,7 +845,7 @@ __global__ void kReduceAllFirstDim(T* __restrict__ output,
   }
 }
 
-template <typename OP, typename T  = float>
+template <typename OP, typename T>
 __global__ void kReduceAllLastDim(T* __restrict__ output,
                                   const T* __restrict__ input, const int n,
                                   const int m) {
@@ -894,13 +922,13 @@ __global__ void kSquaredDiff(T* __restrict__ output,
   }
 }
 
-template <typename OP, typename T =float>
-__global__ void kReduceLastDim(T* values, T* indices, const T* t,
+template <typename OP, typename T = float>
+__global__ void kReduceLastDim(T* values, float * indices, const T* t,
                                int32_t dimSize, int n) {
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   const OP op;
   if (index < n) {
-    auto targetVal = OP::defaultVal();
+    auto targetVal = OP::template defaultVal<T>();
     int32_t targetIdx = 0;
     int32_t srcIdx = index * dimSize;
 #pragma unroll
@@ -912,13 +940,13 @@ __global__ void kReduceLastDim(T* values, T* indices, const T* t,
       }
     }
     values[index] = targetVal;
-    indices[index] = static_cast<T>(targetIdx);
+    indices[index] = targetIdx;
   }
 }
 
 template <typename OP, typename T =float>
-__global__ void kReduceDim(TensorCudaCtx values, T* indices,
-                           const TensorCudaCtx t, int32_t dim, int n) {
+__global__ void kReduceDim(TensorCudaCtx<T> values, float* indices,
+                           const TensorCudaCtx<T> t, int32_t dim, int n) {
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   const OP op;
 
@@ -940,35 +968,34 @@ __global__ void kReduceDim(TensorCudaCtx values, T* indices,
       }
     }
     values.data_[index] = targetVal;
-    indices[index] = static_cast<T>(targetIdx);
+    indices[index] = targetIdx;
   }
 }
 
 template <typename T = float>
-__global__ void kReduceSum(T* retPtr, const TensorCudaCtx t,
+__global__ void kReduceSum(float* retPtr, const TensorCudaCtx<T> t,
                            const FixedVector<uint8_t> inAxis, int n) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < n) {
     int32_t retIdx = cuGetReduceDstIndex(t.shape_, t.strides_, inAxis.data,
                                          index, t.dimCount_);
-    atomicAdd(&retPtr[retIdx], reinterpret_cast<T*>(t.data_)[index]);
+    atomicAdd(&retPtr[retIdx], t.data_[index]);
   }
 }
-
-template <typename T  = float>
-__global__ void kReduceVar(T * retPtr, const TensorCudaCtx t,
-                           const T* meanValues,
+template <typename T = float>
+__global__ void kReduceVar(float* retPtr, const TensorCudaCtx<T> t,
+                           const float* meanValues,
                            const FixedVector<uint8_t> inAxis, int n) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < n) {
     int32_t retIdx = cuGetReduceDstIndex(t.shape_, t.strides_, inAxis.data,
                                          index, t.dimCount_);
-    T diff = reinterpret_cast<T*>(t.data_)[index] - meanValues[retIdx];
+    float diff = t.data_[index] - meanValues[retIdx];
     atomicAdd(&retPtr[retIdx], diff * diff);
   }
 }
-
-__global__ void kPermute(const TensorCudaCtx ret, const TensorCudaCtx t,
+template <typename T = float>
+__global__ void kPermute(const TensorCudaCtx<T> ret, const TensorCudaCtx<T> t,
                          const FixedVector<int32_t> dims, int n) {
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < n) {
@@ -987,7 +1014,7 @@ template <typename T = float>
 __global__ void kTranspose(T* __restrict__ out,
                            const T* __restrict__ in, const int width,
                            const int height) {
-  __shared__ T tile[TRANSPOSE_TILE_DIM]
+  __shared__ float tile[TRANSPOSE_TILE_DIM]
                        [TRANSPOSE_TILE_DIM + 1];  // +1 to avoid bank conflicts
 
   auto x = blockIdx.x * TRANSPOSE_TILE_DIM + threadIdx.x;
@@ -1006,7 +1033,8 @@ __global__ void kTranspose(T* __restrict__ out,
   }
 }
 
-__global__ void kIndex(float* retData, const TensorCudaCtx t,
+template <typename T>
+__global__ void kIndex(float* retData, const TensorCudaCtx<T> t,
                        const FixedVector<float*> indices, int dimStride,
                        int len, int n) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1018,8 +1046,8 @@ __global__ void kIndex(float* retData, const TensorCudaCtx t,
            dimStride * sizeof(float));
   }
 }
-
-__global__ void kIndexPut(TensorCudaCtx t, FixedVector<float*> indices,
+template <typename T>
+__global__ void kIndexPut(TensorCudaCtx<T> t, FixedVector<float*> indices,
                           int dimStride, int len, float val, int n) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < n) {
@@ -1033,7 +1061,8 @@ __global__ void kIndexPut(TensorCudaCtx t, FixedVector<float*> indices,
   }
 }
 
-__global__ void kIndexPut(TensorCudaCtx t, FixedVector<float*> indices,
+template<typename T >
+__global__ void kIndexPut(TensorCudaCtx<T> t, FixedVector<float*> indices,
                           int dimStride, int len, float* val, int n) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < n) {

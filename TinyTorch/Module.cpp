@@ -53,6 +53,14 @@ void Module::to(Device device) {
   }
 }
 
+void Module::to(Dtype device) {
+  for (auto &module : subModules_) {
+    for (auto p : module.get().states()) {
+      p->to(device);
+    }
+  }
+}
+
 Tensor Sequential::forward(Tensor &input) {
   Tensor ret = {input};
   for (auto &module : modules_) {
@@ -178,13 +186,16 @@ Tensor MaxPool2D::forward(Tensor &input) {
 }
 
 Conv2D::Conv2D(int32_t inFeatures, int32_t outFeatures, Size2D kernelSize,
-               Size2D stride, Size2D padding, bool bias)
+               Size2D stride, Size2D padding, bool bias, Dtype fw_type ,
+         Dtype bw_type )
     : inFeatures_(inFeatures),
       outFeatures_(outFeatures),
       kernelSize_(kernelSize),
       stride_(stride),
       padding_(padding),
-      useBias_(bias) {
+      useBias_(bias),
+      fw_type_(fw_type),
+      bw_type_(bw_type){
   weights_ = Tensor::shape(
       {outFeatures, inFeatures, kernelSize_.h, kernelSize_.w}, true);
   if (bias) {

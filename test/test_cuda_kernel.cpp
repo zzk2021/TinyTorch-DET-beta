@@ -140,13 +140,15 @@ TEST(TEST_cuda_kernel, relu_fp16) {
 }
 
 TEST(TEST_cuda_kernel, logSoftmax_fp16) {
-  Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
+    auto o = TensorImpl::ones({1,3,16,16});
+  Tensor a = Tensor(TensorImpl::ones({1,3,16,16},Device::CUDA),true);
   auto output1 = Function::logSoftmax(a, -1);
   auto p = output1.data().toList();
-  auto output = Function::logSoftmax(a.to(Dtype::float16), -1);
+  auto l =  Tensor(TensorImpl::ones({1,3,16,16},Device::CUDA),true).to(Dtype::float16);
+  auto output = Function::logSoftmax(l, -1);
   output.to(Dtype::float32);
-  auto p1 = output.data().toList();
+  auto p1 = output.data().toList();`
   for (size_t i = 0; i < p.size(); ++i) {
-       ASSERT_NEAR(p[i], p1[i], 1e-2);
+       ASSERT_NEAR(p[i], p1[i], 1e-3);
   }
 }

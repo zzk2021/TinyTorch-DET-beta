@@ -426,23 +426,6 @@ __global__ void kFillRandNormal(float* __restrict__ t, const float mean,
   }
 }
 
-__global__ void kFillRandBernoulli(half* __restrict__ t, const half p,
-                                   const unsigned long seed,
-                                   const unsigned long seq, const int n) {
-  const auto index = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-  if (index < n) {
-    curandStatePhilox4_32_10_t state;
-    curand_init(seed, seq, index, &state);
-    const auto rand = curand_uniform4(&state);
-    const auto rand = curand_(&state);
-    if (index + 1 < n) {
-      FETCH_HALF2(t[index]) =
-          make_half2(rand.x < p ? 1.f : 0.f, rand.y < p ? 1.f : 0.f);
-    } else {
-      if (index < n) t[index] = rand.x < p ? 1.f : 0.f;
-    }
-  }
-}
 
 __global__ void kFillRandBernoulli(float* __restrict__ t, const float p,
                                    const unsigned long seed,

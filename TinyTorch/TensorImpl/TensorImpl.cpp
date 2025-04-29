@@ -300,8 +300,8 @@ TensorImpl TensorImpl::randn(const Shape &s, Device device) {
   return ret;
 }
 
-TensorImpl TensorImpl::bernoulli(const Shape &s, float p, Device device) {
-  TensorImpl ret = shape(s, device);
+TensorImpl TensorImpl::bernoulli(const Shape &s, float p, Device device , Dtype T) {
+  TensorImpl ret = shape(s, device, T);
   ret.ops_->fillRandBernoulli_(ret, p);
   return ret;
 }

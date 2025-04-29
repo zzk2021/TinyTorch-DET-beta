@@ -48,7 +48,7 @@ class Tensor {
   const Shape &shape() const { return data_->shape(); }
 
   Device device() const { return data_->device(); }
-
+  Dtype type() const { return data_->type(); }
   float item() const { return data_->item(); }
 
   Tensor reshape(const Shape &shape) const;

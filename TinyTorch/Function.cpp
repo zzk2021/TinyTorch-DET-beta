@@ -728,7 +728,7 @@ TensorImpl FuncDropout::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   if (training_) {
     mask_ = TensorImpl::bernoulli(inputs[0]->shape(), 1.f - p_,
-                                  inputs[0]->device());
+                                  inputs[0]->device(), inputs[0]->type());
     return mask_ * inputs[0]->data() / (1.f - p_);
   } else {
     return inputs[0]->data();

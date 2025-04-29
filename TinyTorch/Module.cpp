@@ -53,10 +53,10 @@ void Module::to(Device device) {
   }
 }
 
-void Module::to(Dtype device) {
+void Module::to(Dtype type) {
   for (auto &module : subModules_) {
     for (auto p : module.get().states()) {
-      p->to(device);
+      p->to(type);
     }
   }
 }

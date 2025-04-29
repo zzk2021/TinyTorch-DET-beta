@@ -93,7 +93,7 @@ class TensorImpl {
                           Device device = getDefaultDevice());
 
   static TensorImpl bernoulli(const Shape &shape, float p,
-                              Device device = getDefaultDevice());
+                              Device device = getDefaultDevice(), Dtype type = getDefaultDtype());
 
   static TensorImpl arange(float start, float stop, float step = 1.f,
                            Device device = getDefaultDevice());

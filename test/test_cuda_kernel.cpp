@@ -147,7 +147,7 @@ TEST(TEST_cuda_kernel, logSoftmax_fp16) {
   auto l =  Tensor(TensorImpl::ones({1,3,16,16},Device::CUDA),true).to(Dtype::float16);
   auto output = Function::logSoftmax(l, -1);
   output.to(Dtype::float32);
-  auto p1 = output.data().toList();`
+  auto p1 = output.data().toList();
   for (size_t i = 0; i < p.size(); ++i) {
        ASSERT_NEAR(p[i], p1[i], 1e-3);
   }

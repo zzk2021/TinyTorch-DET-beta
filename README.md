@@ -10,6 +10,8 @@
   <img src="doc/ChatGPT_LOGO_512.png" alt="Centered Image" width="512" height="512">
 </p>
 
+This project is a fork and extension of the [TinyTorch](https://github.com/keith2018/TinyTorch) by [keith2018](https://github.com/keith2018).
+
 # TinyTorch
 
 Tiny deep learning training framework implemented from scratch in C++ that follows PyTorch's API. For more details, see [Write a nn training framework from scratch](https://robot9.me/write-nn-framework-from-scratch-tinytorch/)
@@ -262,6 +264,10 @@ ctest
 
 ## Dependencies
 - `OpenBLAS` (optional for `gemm` on CPU mode) [https://github.com/OpenMathLib/OpenBLAS](https://github.com/OpenMathLib/OpenBLAS)
+
+## Acknowledgments
+
+Special thanks to [keith2018] for creating the initial version of this project, and to all contributors who have helped improve it over time.
 
 ## License
 This code is licensed under the MIT License (see [LICENSE](LICENSE)).

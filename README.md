@@ -2,7 +2,7 @@
 
 A deep learning framework for faster vision task
 
-![](doc/AD.png)
+![](doc/ChatGPT Image 2025年5月5日 21_56_43.png)
 
 
 # TinyTorch

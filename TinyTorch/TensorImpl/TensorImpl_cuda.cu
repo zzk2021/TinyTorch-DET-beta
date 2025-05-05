@@ -1572,11 +1572,11 @@ TensorImpl TensorOpsCUDA::upsample_forward(const TensorImpl& a , int32_t scale_f
 }
 
 TensorImpl TensorOpsCUDA::upsample_backward(const TensorImpl& a , int32_t scale_factor){
-  TensorImpl ret = TensorImpl::shape({a.shape_[0], a.shape_[1], static_cast<int>(a.shape_[2]*scale_factor),
-                                            static_cast<int>(a.shape_[3]*scale_factor)}, a.device());
+  TensorImpl ret = TensorImpl::shape({a.shape_[0], a.shape_[1], static_cast<int>(a.shape_[2]/scale_factor),
+                                            static_cast<int>(a.shape_[3]/scale_factor)}, a.device());
   int32_t N = a.numel();
-  int32_t h = a.shape_[2];
-  int32_t w = a.shape_[3];
+  int32_t h = ret.shape_[2];
+  int32_t w = ret.shape_[3];
   if (scale_factor == 2 && N >= 256){
     dim3 grid(N / kBlockSize, 1);
     dim3 block(kBlockSize, 1);

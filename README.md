@@ -2,7 +2,7 @@
 
 <!-- 使用 p 标签与 align 属性 -->
 <p align="center">
-  <strong>A deep learning framework for faster vision task</strong>
+  <strong><h2>A deep learning framework for faster vision task</h2>h2></strong>
 </p>
 
 <p align="center">

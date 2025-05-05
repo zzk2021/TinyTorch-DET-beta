@@ -1,6 +1,9 @@
-# TinyTorch-DET
+# TinyVision
 
-This is a exploration of TinyTorch for object detection and some vision tasks.
+A deep learning framework for faster vision task
+
+![](doc/AD.png)
+
 
 # TinyTorch
 

@@ -1,6 +1,9 @@
 # TinyVision
 
-A deep learning framework for faster vision task
+<!-- 使用 p 标签与 align 属性 -->
+<p align="center">
+  <strong>A deep learning framework for faster vision task</strong>
+</p>
 
 <p align="center">
   <img src="doc/ChatGPT_LOGO_512.png" alt="Centered Image" width="512" height="512">

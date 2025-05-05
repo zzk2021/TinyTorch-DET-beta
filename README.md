@@ -2,8 +2,9 @@
 
 A deep learning framework for faster vision task
 
-![](doc/ChatGPT_LOGO_512.png)
-
+<p align="center">
+  <img src="doc/ChatGPT_LOGO_512.png" alt="Centered Image" width="512" height="512">
+</p>
 
 # TinyTorch
 

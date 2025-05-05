@@ -1,10 +1,11 @@
 # TinyVision
 
 <!-- 使用 p 标签与 align 属性 -->
+<h3>
 <p align="center">
-  <strong><h2>A deep learning framework for faster vision task</h2></strong>
+  <strong>A deep learning framework for faster vision task</strong>
 </p>
-
+</h3>
 <p align="center">
   <img src="doc/ChatGPT_LOGO_512.png" alt="Centered Image" width="512" height="512">
 </p>

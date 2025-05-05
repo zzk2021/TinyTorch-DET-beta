@@ -7,6 +7,8 @@
 #pragma once
 
 #include "kernel/upsample.inc"
+#include "kernel/concat.inc"
+#include "kernel/split.inc"
 
 namespace TinyTorch {
 

@@ -1137,6 +1137,18 @@ void TensorOpsCPU::gemm(float* c, const float * a, const float * b, int32_t m,
   }
 }
 
+TensorImpl TensorOpsCPU::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim_){
+    throw std::runtime_error("We have not implement in CPU yet");
+}
+std::pair<TensorImpl, TensorImpl> TensorOpsCPU::split(
+    const TensorImpl& input,
+    int32_t split_size0,
+    int32_t split_size1,
+    int32_t dim)
+{
+    throw std::runtime_error("We have not implement in CPU yet");
+
+ }
 TensorImpl TensorOpsCPU::flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
                const TensorImpl& V , int32_t head) {
   throw std::runtime_error("We have not implement in CPU yet");

@@ -1439,6 +1439,118 @@ void TensorOpsCUDA::gemm(float* c, const float* a, const float* b, int32_t m,
   }
 }
 
+std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::split(
+    const TensorImpl& input,
+    int32_t split_size0,
+    int32_t split_size1,
+    int32_t dim)
+{
+  Shape input_shape = input.shape();
+
+  std::vector<int32_t> output_shape0 = input.shape();
+  std::vector<int32_t> output_shape1 = input.shape();
+  output_shape0[dim] = split_size0;
+  output_shape1[dim] = split_size1;
+  auto ret0 = TensorImpl::shape(output_shape0, input.device_, input.type_);
+  auto ret1 = TensorImpl::shape(output_shape1, input.device_, input.type_);
+
+  int32_t threads_per_block = 256;
+  int32_t total_elems = input.numel();
+  int32_t blocks = (total_elems + threads_per_block - 1) / threads_per_block;
+
+  if (input.type() ==  Dtype::float32)
+    ppl_cukernel_split<<<blocks, threads_per_block>>>(
+        input.data(),
+        ret0.data_,
+        ret1.data_,
+        input.shape().data(),
+        split_size0,
+        split_size1, dim,total_elems
+    );
+  else if (input.type() ==  Dtype::float16)
+    ppl_cukernel_split<<<blocks, threads_per_block>>>(
+       reinterpret_cast<const half*>(input.data()),
+       reinterpret_cast<half*>(ret0.data_),
+       reinterpret_cast<half*>(ret1.data_),
+       input.shape().data(),
+        split_size0,
+        split_size1,
+       dim, total_elems
+   );
+  else if (input.type() ==  Dtype::bfloat16)
+    ppl_cukernel_split<<<blocks, threads_per_block>>>(
+       reinterpret_cast<const __nv_bfloat16*>(input.data()),
+       reinterpret_cast<__nv_bfloat16*>(ret0.data()),
+       reinterpret_cast<__nv_bfloat16*>(ret1.data()),
+       input.shape().data(),
+        split_size0,
+        split_size1,
+       dim, total_elems
+   );
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
+  }
+  return {ret0, ret1};
+}
+
+TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim_){
+  int32_t dim = dim_ < 0 ? dim_ + a.shape().size() : dim_;
+  Shape a_shape = a.shape();
+  Shape b_shape = b.shape();
+  Shape output_shape = a_shape;
+  output_shape[dim] = a_shape[dim] + b_shape[dim];
+
+  TensorImpl ret = TensorImpl::shape(output_shape, a.device(), a.type());
+
+  int32_t threads_per_block = 256;
+  int32_t total_elems = ret.numel();
+  int32_t blocks = (total_elems + threads_per_block - 1) / threads_per_block;
+
+  if (a.type() == Dtype::float32) {
+    ppl_cukernel_concat<<<blocks, threads_per_block>>>(
+        a.data_,
+        b.data_,
+        ret.data_,
+        a_shape.data(),
+        b_shape.data(),
+        output_shape.data(),
+        dim,
+        a_shape[dim],
+        b_shape[dim]
+    );
+  } else if (a.type() == Dtype::float16) {
+    ppl_cukernel_concat<<<blocks, threads_per_block>>>(
+      reinterpret_cast<const half*>(a.data_),
+      reinterpret_cast<const half*>(b.data_),
+      reinterpret_cast<half*>(ret.data_),
+      a_shape.data(),
+      b_shape.data(),
+      output_shape.data(),
+      dim,
+      a_shape[dim],
+      b_shape[dim]
+    );
+  }else if (a.type() == Dtype::bfloat16) {
+    ppl_cukernel_concat<<<blocks, threads_per_block>>>(
+      reinterpret_cast<const __nv_bfloat16*>(a.data_),
+      reinterpret_cast<const __nv_bfloat16*>(b.data_),
+      reinterpret_cast<__nv_bfloat16*>(ret.data_),
+      a_shape.data(),
+      b_shape.data(),
+      output_shape.data(),
+      dim,
+      a_shape[dim],
+      b_shape[dim]
+    );
+  }
+  cudaError_t err = cudaGetLastError();
+  if (err != cudaSuccess) {
+    printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
+  }
+  return ret;
+}
+
 TensorImpl TensorOpsCUDA::upsample_forward(const TensorImpl& a , int32_t scale_factor){
   TensorImpl ret = TensorImpl::shape({a.shape_[0], a.shape_[1], static_cast<int>(a.shape_[2]*scale_factor),
                                             static_cast<int>(a.shape_[3]*scale_factor)}, a.device());

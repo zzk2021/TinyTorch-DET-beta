@@ -1,4 +1,5 @@
 #pragma once
+
 template <typename T, int32_t NumDims = 4>
 __global__ void ppl_cukernel_concat(
     const T* a_data,

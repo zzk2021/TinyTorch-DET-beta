@@ -26,6 +26,8 @@ Tiny deep learning training framework implemented from scratch in C++ that follo
   - Relu
   - Sequential
   - UpSample
+  - Concat(Under construction)
+  - Split(Under construction)
 - Loss
   - MSELoss
   - NLLLoss
@@ -45,7 +47,7 @@ Tiny deep learning training framework implemented from scratch in C++ that follo
 
 ![](doc/AD.png)
 
-## FP16 BF16 support
+## FP16 BF16 support(Under construction)
 ```c++
 #include "Torch.h"
 

@@ -59,7 +59,7 @@ Tensor Function::add(const Tensor& a, const Tensor& b) {
 }
 
 Tensor Function::concat(const Tensor& a, const Tensor& b, int32_t dim) {
-  return std::make_shared<FuncConCat>(dim)->callForward({&a, &b});
+  return std::make_shared<FuncConCat>(dim, a.shape()[dim])->callForward({&a, &b});
 }
 
 Tensor Function::sub(const Tensor& a, const Tensor& b) {
@@ -345,11 +345,11 @@ TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {
     const auto& shape1 = t1.data().shape();
     const auto& shape2 = t2.data().shape();
 
-    if (shape1.size() != shape2.size()) {
-        throw std::runtime_error("All inputs must have the same number of dimensions");
+    if (shape1.size() != shape2.size() || t1.device() != t2.device() || t1.type() != t2.type()) {
+        throw std::runtime_error("All inputs must have the same number of dimensions, same device, same type");
     }
 
-    const int32_t concat_dim = dim_;  // 假设私有成员变量dim_存储拼接维度
+    const int32_t concat_dim = dim_;
     const int32_t ndims = shape1.size();
 
     if (concat_dim < 0 || concat_dim >= ndims) {
@@ -360,6 +360,10 @@ TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {
         if (i != concat_dim && shape1[i] != shape2[i]) {
             throw std::runtime_error("Non-concat dimensions must be equal");
         }
+    }
+
+    if (t1.device() == Device::CUDA){
+        return  t1.data().ops()->concat(t1.data(), t2.data(), dim_);
     }
 
     std::vector<int32_t> output_shape = shape1;
@@ -393,15 +397,68 @@ TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {
 }
 
 std::vector<TensorImpl> FuncConCat::backward(const TensorImpl& grad) {
-  const auto& savedTensors = getSavedTensors();
-  std::vector<TensorImpl> ret;
-  if (savedTensors[0].isRequiresGrad()) {
-    ret.push_back(grad);
-  }
-  if (savedTensors[1].isRequiresGrad()) {
-    ret.push_back(grad);
-  }
-  return ret;
+    const auto& savedTensors = getSavedTensors();
+    std::vector<TensorImpl> ret;
+
+    if (savedTensors.size() != 2) {
+        throw std::runtime_error("FuncConCat::backward expected 2 saved tensors");
+    }
+
+    const Tensor t1 = savedTensors[0];
+    const Tensor t2 = savedTensors[1];
+    const bool need_grad1 = t1.isRequiresGrad();
+    const bool need_grad2 = t2.isRequiresGrad();
+
+    if (!need_grad1 && !need_grad2) {
+        return ret;
+    }
+    if (grad.device() == Device::CUDA) {
+        auto grad_list = grad.ops()->concat_backward(grad, dim_, a_shape_);
+        if (need_grad1) ret.push_back(grad_list[0]);
+        if (need_grad2) ret.push_back(grad_list[1]);
+    } else {
+
+        const auto& t1_shape = t1.shape();
+        const auto& t2_shape = t2.shape();
+        const int32_t a = t1_shape[dim_];
+        const int32_t b = t2_shape[dim_];
+        const auto& grad_shape = grad.shape();
+
+
+        if (grad_shape[dim_] != a + b) {
+            throw std::runtime_error("Gradient dimension mismatch in ConCat backward");
+        }
+
+        TensorImpl grad1, grad2;
+        if (need_grad1) grad1 = TensorImpl::zeros(t1_shape);
+        if (need_grad2) grad2 = TensorImpl::zeros(t2_shape);
+
+        const size_t outer_size = std::accumulate(grad_shape.begin(), grad_shape.begin() + dim_, 1, std::multiplies<int32_t>());
+        const size_t inner_size = std::accumulate(grad_shape.begin() + dim_ + 1, grad_shape.end(), 1, std::multiplies<int32_t>());
+        const size_t elem_size = sizeof(int32_t);
+
+        auto grad_data = grad.data();
+        auto grad1_data = need_grad1 ? grad1.data() : nullptr;
+        auto grad2_data = need_grad2 ? grad2.data() : nullptr;
+
+        for (size_t i = 0; i < outer_size; ++i) {
+            const auto src = grad_data + i * (a + b) * inner_size;
+            if (need_grad1) {
+                auto dest1 = grad1_data + i * a * inner_size;
+                std::memcpy(dest1, src, a * inner_size * elem_size);
+            }
+            if (need_grad2) {
+                const auto src2 = src + a * inner_size;
+                auto dest2 = grad2_data + i * b * inner_size;
+                std::memcpy(dest2, src2, b * inner_size * elem_size);
+            }
+        }
+
+        if (need_grad1) ret.push_back(std::move(grad1));
+        if (need_grad2) ret.push_back(std::move(grad2));
+    }
+
+    return ret;
 }
 
 TensorImpl FuncAdd::forward(const std::vector<const Tensor*>& inputs) {

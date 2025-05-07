@@ -1140,6 +1140,10 @@ void TensorOpsCPU::gemm(float* c, const float * a, const float * b, int32_t m,
 TensorImpl TensorOpsCPU::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim_){
     throw std::runtime_error("We have not implement in CPU yet");
 }
+
+std::vector<TensorImpl> TensorOpsCPU::concat_backward(const TensorImpl& a , int32_t dim_, int32_t a_shape){
+    throw std::runtime_error("We have not implement in CPU yet");
+}
 std::pair<TensorImpl, TensorImpl> TensorOpsCPU::split(
     const TensorImpl& input,
     int32_t split_size0,

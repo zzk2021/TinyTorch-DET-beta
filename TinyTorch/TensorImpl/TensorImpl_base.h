@@ -216,11 +216,13 @@ typedef enum ShapeCompatible_ {
     int32_t split_size0,                                                       \
     int32_t split_size1,                                                       \
     int32_t dim) _T ;                                                          \
-  _H TensorImpl concat(const TensorImpl& a ,                                    \
+  _H TensorImpl concat(const TensorImpl& a ,                                   \
   const TensorImpl& b, int32_t dim_) _T;                                       \
+  _H std::vector<TensorImpl> concat_backward(const TensorImpl& a,              \
+  int32_t dim_,int32_t a_dim_shape) _T;                                        \
   _H void gemm(float* c, const float* a, const float* b, int32_t m,            \
-                         int32_t k, int32_t n, bool transA, bool transBk,      \
-                         Dtype Ta = Dtype::float32, Dtype Tc = Dtype::float32) _T;\
+  int32_t k, int32_t n, bool transA, bool transBk,                             \
+  Dtype Ta = Dtype::float32, Dtype Tc = Dtype::float32) _T;                    \
 
 
 class TensorImpl;

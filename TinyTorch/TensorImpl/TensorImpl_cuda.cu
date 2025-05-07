@@ -20,19 +20,6 @@
 
 namespace TinyTorch {
 
-template <Dtype T>
-struct DTypeToNative;
-
-template <>
-struct DTypeToNative<Dtype::float32> { using type = float; };
-
-template <>
-struct DTypeToNative<Dtype::float16> { using type = half; };
-
-template <>
-struct DTypeToNative<Dtype::bfloat16> { using type = __nv_bfloat16; };
-
-
 const char* curandGetErrorString(curandStatus_t status);
 const char* cublasGetErrorString(cublasStatus_t status);
 
@@ -1494,61 +1481,92 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::split(
   return {ret0, ret1};
 }
 
-TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim_){
-  int32_t dim = dim_ < 0 ? dim_ + a.shape().size() : dim_;
+TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim){
   Shape a_shape = a.shape();
   Shape b_shape = b.shape();
   Shape output_shape = a_shape;
   output_shape[dim] = a_shape[dim] + b_shape[dim];
 
   TensorImpl ret = TensorImpl::shape(output_shape, a.device(), a.type());
+  if (dim==a_shape.size()-1){
+    size_t num_blocks = 1;
+    size_t a_block_bytes = a_shape[dim] * sizeof(float);
+    size_t b_block_bytes = b_shape[dim] * sizeof(float);
+    size_t output_block_bytes = (a_shape[dim] + b_shape[dim]) * sizeof(float);
 
-  int32_t threads_per_block = 256;
-  int32_t total_elems = ret.numel();
-  int32_t blocks = (total_elems + threads_per_block - 1) / threads_per_block;
-
-  if (a.type() == Dtype::float32) {
-    ppl_cukernel_concat<<<blocks, threads_per_block>>>(
-        a.data_,
-        b.data_,
-        ret.data_,
-        a_shape.data(),
-        b_shape.data(),
-        output_shape.data(),
-        dim,
-        a_shape[dim],
-        b_shape[dim]
-    );
-  } else if (a.type() == Dtype::float16) {
-    ppl_cukernel_concat<<<blocks, threads_per_block>>>(
-      reinterpret_cast<const half*>(a.data_),
-      reinterpret_cast<const half*>(b.data_),
-      reinterpret_cast<half*>(ret.data_),
-      a_shape.data(),
-      b_shape.data(),
-      output_shape.data(),
-      dim,
-      a_shape[dim],
-      b_shape[dim]
-    );
-  }else if (a.type() == Dtype::bfloat16) {
-    ppl_cukernel_concat<<<blocks, threads_per_block>>>(
-      reinterpret_cast<const __nv_bfloat16*>(a.data_),
-      reinterpret_cast<const __nv_bfloat16*>(b.data_),
-      reinterpret_cast<__nv_bfloat16*>(ret.data_),
-      a_shape.data(),
-      b_shape.data(),
-      output_shape.data(),
-      dim,
-      a_shape[dim],
-      b_shape[dim]
-    );
+    for (int i = 0; i < a_shape.size() - 1; ++i) {
+        num_blocks *= a_shape[i];
+    }
+    for (size_t i = 0; i < num_blocks; ++i) {
+        const float* a_src = a.data() + i * a_shape[dim];
+        const float* b_src = b.data() + i * b_shape[dim];
+        float* output_dst = ret.data_ + i * (a_shape[dim] + b_shape[dim]);
+        cudaMemcpyAsync(
+            output_dst,
+            a_src,
+            a_block_bytes,
+            cudaMemcpyDeviceToDevice
+        );
+        cudaMemcpyAsync(
+            output_dst + a_shape[dim],
+            b_src,
+            b_block_bytes,
+            cudaMemcpyDeviceToDevice
+        );
+    }
+     return ret;
   }
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
+  else{
+     throw std::invalid_argument("Unsupported dim, we only support last dim concat");
+
   }
   return ret;
+}
+
+std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, int32_t dim, int32_t a_dim_shape){
+  Shape grad_shape = grad.shape();
+  Shape output_shape_1 = grad.shape();
+  Shape output_shape_2 = grad.shape();
+  int32_t b_dim_shape = output_shape_2[dim] - a_dim_shape;
+  output_shape_1[dim] = a_dim_shape;
+  output_shape_2[dim] = b_dim_shape;
+
+  TensorImpl ret0 = TensorImpl::shape(output_shape_1, grad.device(), grad.type());
+  TensorImpl ret1 = TensorImpl::shape(output_shape_2, grad.device(), grad.type());
+  if (dim==grad_shape.size()-1){
+    const int64_t num_dims = output_shape_1.size();
+    int64_t inner_size = 1;
+    for (int i = 0; i < num_dims - 1; ++i) {
+
+        inner_size *= output_shape_1[i];
+    }
+
+    const int64_t a_dim_size = output_shape_1[dim];
+    const int64_t b_dim_size = output_shape_2[dim];
+    const int64_t concat_dim_size = a_dim_size + b_dim_size;
+
+    for (int64_t i = 0; i < inner_size; ++i) {
+        const float* grad_output_ptr = grad.data() + i * concat_dim_size;
+        float* grad_a_ptr = ret0.data_ + i * a_dim_size;
+        float* grad_b_ptr = ret1.data_ + i * b_dim_size;
+        cudaMemcpyAsync(
+            grad_a_ptr,
+            grad_output_ptr,
+            a_dim_size * sizeof(float),
+            cudaMemcpyDeviceToDevice
+        );
+        cudaMemcpyAsync(
+            grad_b_ptr,
+            grad_output_ptr + a_dim_size,
+            b_dim_size * sizeof(float),
+            cudaMemcpyDeviceToDevice
+        );
+    }
+    }
+  else{
+      throw std::invalid_argument("Unsupported dim, we only support last dim concat");
+  }
+  return {ret0, ret1};
 }
 
 TensorImpl TensorOpsCUDA::upsample_forward(const TensorImpl& a , int32_t scale_factor){

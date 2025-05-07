@@ -21,8 +21,9 @@ TEST(TEST_Function, concat) {
     {2.5f,3.0f,1.0f}}, true);
   auto y = Function::concat(x, a, 1);
   EXPECT_THAT(y.data().toList(), ElementsAre(1.0f, 2.0f, 3.0f,1.0f, 2.0f, 3.0f,2.0f,2.5f,1.0f,2.0f,2.5f,1.0f,2.5f,3.0f,1.0f,2.5f,3.0f,1.0f));
- // y.backward(Tensor::onesLike(y));
-  //EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(0, 0, 1, 0, 1, 0, 0, 1, 0));
+  y.backward(Tensor::onesLike(y));
+  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(1, 1, 1, 1, 1, 1, 1, 1, 1));
+  EXPECT_THAT(a.getGrad().data().toList(), ElementsAre(1, 1, 1, 1, 1, 1, 1, 1, 1));
 }
 
 TEST(TEST_Function, func_max) {

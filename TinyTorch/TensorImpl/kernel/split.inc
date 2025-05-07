@@ -42,3 +42,39 @@ __global__ void ppl_cukernel_split(
     output1[out_idx] = input_data[idx];
   }
 }
+
+template <typename T>
+__global__ void ppl_cukernel_concat_backward(
+    const T* input_data,
+    T* output0,
+    T* output1,
+    const int32_t* input_shape,
+    int32_t split_size0,
+    int32_t dim,
+    int32_t N)
+{
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+
+
+    int remaining = tid;
+    int coord[4] = {0};
+    int strides[4] = {1, 1, 1, 1};
+
+    for (int i = 3; i > 0; --i) {
+        strides[i-1] = strides[i] * input_shape[i];
+    }
+
+    for (int i = 0; i < 4; ++i) {
+        coord[i] = remaining / strides[i];
+        remaining %= strides[i];
+    }
+
+    const int dim_coord = coord[dim];
+
+    if (dim_coord < split_size0) {
+        output0[tid] = input_data[tid];
+    } else {
+        output1[tid] = input_data[tid];
+    }
+}

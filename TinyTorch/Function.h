@@ -170,11 +170,12 @@ class FuncAdd : public Function {
 
 class FuncConCat : public Function {
  public:
-    FuncConCat(int32_t dim)
-     : dim_(dim){}
+    FuncConCat(int32_t dim, int32_t a_shape)
+     : dim_(dim), a_shape_(a_shape){}
   DEFINE_FUNCTION_MEMBERS(Function_ConCat)
  private:
   int32_t dim_;
+  int32_t a_shape_;
 };
 
 class FuncSub : public Function {

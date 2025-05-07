@@ -152,3 +152,23 @@ TEST(TEST_cuda_kernel, logSoftmax_fp16) {
        ASSERT_NEAR(p[i], p1[i], 1e-3);
   }
 }
+
+TEST(TEST_Function, concat_cuda) {
+  Tensor x({
+    {1.0f, 2.0f, 3.0f},
+    {2.0f,2.5f,1.0f},
+    {2.5f,3.0f,1.0f}}, true);
+  Tensor a({
+    {1.0f, 2.0f, 3.0f},
+    {2.0f,2.5f,1.0f},
+    {2.5f,3.0f,1.0f}}, true);
+
+  a.to(Device::CUDA);
+  x.to(Device::CUDA);
+
+  auto y = Function::concat(x, a, 1);
+  EXPECT_THAT(y.data().toList(), ElementsAre(1.0f, 2.0f, 3.0f,1.0f, 2.0f, 3.0f, 2.0f, 2.5f, 1.0f, 2.0f,2.5f,1.0f,2.5f,3.0f,1.0f,2.5f,3.0f,1.0f));
+  y.backward(Tensor::onesLike(y).to(Device::CUDA));
+  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(1, 1, 1, 1, 1, 1, 1, 1, 1));
+  EXPECT_THAT(a.getGrad().data().toList(), ElementsAre(1, 1, 1, 1, 1, 1, 1, 1, 1));
+}

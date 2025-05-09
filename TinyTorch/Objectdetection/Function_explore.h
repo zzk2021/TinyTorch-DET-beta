@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Function.h"
+#include "../Function.h"
 
 
 namespace TinyTorch {

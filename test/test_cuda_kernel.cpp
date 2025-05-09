@@ -7,6 +7,7 @@
 #include <Torch.h>
 
 #include "test.h"
+#include <chrono>
 
 using namespace TinyTorch;
 
@@ -158,6 +159,7 @@ TEST(TEST_Function, concat_cuda) {
     {1.0f, 2.0f, 3.0f},
     {2.0f,2.5f,1.0f},
     {2.5f,3.0f,1.0f}}, true);
+
   Tensor a({
     {1.0f, 2.0f, 3.0f},
     {2.0f,2.5f,1.0f},
@@ -165,10 +167,85 @@ TEST(TEST_Function, concat_cuda) {
 
   a.to(Device::CUDA);
   x.to(Device::CUDA);
-
+  Tensor grad({
+    {1.0f, 2.0f, 3.0f, 2.0f, 3.0f, 4.0f},
+    {2.0f,2.5f,1.0f,3.0f,3.5f,2.0f},
+    {2.5f,3.0f,1.0f,3.0f,3.5f,2.0f}}, true);
   auto y = Function::concat(x, a, 1);
   EXPECT_THAT(y.data().toList(), ElementsAre(1.0f, 2.0f, 3.0f,1.0f, 2.0f, 3.0f, 2.0f, 2.5f, 1.0f, 2.0f,2.5f,1.0f,2.5f,3.0f,1.0f,2.5f,3.0f,1.0f));
-  y.backward(Tensor::onesLike(y).to(Device::CUDA));
-  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(1, 1, 1, 1, 1, 1, 1, 1, 1));
-  EXPECT_THAT(a.getGrad().data().toList(), ElementsAre(1, 1, 1, 1, 1, 1, 1, 1, 1));
+  y.backward(grad.to(Device::CUDA));
+  EXPECT_THAT(x.getGrad().data().toList(), ElementsAre(1.0f, 2.0f, 3.0f, 2.0f, 2.5f, 1.0f, 2.5f, 3.0f, 1.0f));
+  EXPECT_THAT(a.getGrad().data().toList(), ElementsAre(2.0f, 3.0f, 4.0f, 3.0f, 3.5f, 2.0f, 3.0f, 3.5f, 2.0f));
+
+  Tensor x1(TensorImpl::randn({32,3,256,256}), true);
+  Tensor a1(TensorImpl::randn({32,3,256,256}), true);
+  Tensor grad1(TensorImpl::randn({32,6,256,256}), true);
+
+  auto start = std::chrono::high_resolution_clock::now(); // 开始记录 concat 操作时间
+  auto y1 = Function::concat(x1, a1, 1);
+  auto end = std::chrono::high_resolution_clock::now(); // 开始记录 concat 操作时间
+   auto startb = std::chrono::high_resolution_clock::now(); // 开始记录 concat 操作时间
+  y1.backward(grad1);
+  auto endb = std::chrono::high_resolution_clock::now(); // 开始记录 concat 操作时间
+  Tensor a2 = a1.to(Device::CUDA);
+  Tensor x2 = x1.to(Device::CUDA);
+
+  Tensor grad2 = grad1.to(Device::CUDA);
+
+  auto start1 = std::chrono::high_resolution_clock::now(); // 开始记录 concat 操作时间
+  auto y2 = Function::concat(x2, a2, 1);
+  auto end1 = std::chrono::high_resolution_clock::now(); // 开始记录 concat 操作时间
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+  std::cout << "Concat operation forward cpu time (us): " << duration << std::endl;
+  auto duration1 = std::chrono::duration_cast<std::chrono::microseconds>(end1 - start1).count();
+  std::cout << "Concat operation  forward cuda  time (us): " << duration1 << std::endl;
+
+  auto startb1 = std::chrono::high_resolution_clock::now(); // 开始记录 concat 操作时间
+  y2.backward(grad2);
+  auto endb1 = std::chrono::high_resolution_clock::now(); // 开始记录 concat 操作时间
+  auto durationd = std::chrono::duration_cast<std::chrono::microseconds>(endb - startb).count();
+  auto durationd1 = std::chrono::duration_cast<std::chrono::microseconds>(endb1 - startb1).count();
+  std::cout << "Concat operation backward cpu time (us): " << durationd << std::endl;
+  std::cout << "Concat operation backward cuda  time (us): " << durationd1 << std::endl;
+
+  auto p = y1.toList();
+  auto p1 = y2.toList();
+
+  auto pga1 = y1.getGrad().data().toList();
+
+  auto pga2 = y2.getGrad().data().toList();
+
+  for (size_t i = 0; i < p.size(); ++i) {
+       ASSERT_NEAR(p[i], p1[i], 1e-3);
+  }
+  for (size_t i = 0; i < pga1.size(); ++i) {
+       ASSERT_NEAR(pga1[i], pga2[i], 1e-3);
+  }
+
 }
+
+TEST(TEST_Function, leakyrelu_cuda) {
+  Tensor a = Tensor(TensorImpl::ones({32,3,256,256},Device::CPU),true);
+  Tensor grad = Tensor(TensorImpl::randn({32,3,256,256},Device::CPU),true);
+
+  auto y_cpu = Function::leakyrelu(a, 0.1);
+
+  y_cpu.backward(grad);
+  auto p = y_cpu.data().toList();
+  auto gp = y_cpu.getGrad().data().toList();
+  grad.to(Device::CUDA);
+
+  Tensor b = Tensor(TensorImpl::ones({32,3,256,256},Device::CUDA),true);
+  auto y_cuda = Function::leakyrelu(b, 0.1);
+  y_cuda.backward(grad);
+  auto p1 = y_cuda.data().toList();
+  auto gp1 = y_cuda.getGrad().data().toList();
+
+  for (size_t i = 0; i < p.size(); ++i) {
+    ASSERT_NEAR(p[i], p1[i], 1e-3);
+  }
+  for (size_t i = 0; i < gp.size(); ++i) {
+    ASSERT_NEAR(gp[i], gp1[i], 1e-3);
+  }
+}
+

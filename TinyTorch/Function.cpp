@@ -5,6 +5,8 @@
  */
 
 #include "Function.h"
+#include "Objectdetection/Function_explore.h"
+#include "Objectdetection/header.h"
 #include <numeric>
 #include <cassert>
 #include <set>
@@ -47,7 +49,10 @@ std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     FUNC_ENUM_TO_STRING(Function_BatchNorm),
     FUNC_ENUM_TO_STRING(Function_MSELoss),
     FUNC_ENUM_TO_STRING(Function_NLLLoss),
+    OBJDECT_EXPLORE_funcTypeToString_()
 };
+
+
 
 Tensor Function::upsample(const Tensor& input, int32_t scale_factor) {
   return std::make_shared<FuncUpSample>(scale_factor)
@@ -100,6 +105,10 @@ Tensor Function::max(const Tensor& a, int32_t dim ,bool keepdim) {
 
 Tensor Function::relu(const Tensor& input) {
   return std::make_shared<FuncRelu>()->callForward({&input});
+}
+
+Tensor Function::leakyrelu(const Tensor& input, float rate) {
+  return std::make_shared<FuncLeakyRelu>(rate)->callForward({&input});
 }
 
 Tensor Function::flatten(const Tensor& input, int32_t startDim,
@@ -650,6 +659,20 @@ std::vector<TensorImpl> FuncSum::backward(const TensorImpl& grad) {
   auto& input = savedTensors[0];
   if (input.isRequiresGrad()) {
     ret.push_back(grad * TensorImpl::onesLike(input.data(), input.device()));
+  }
+  return ret;
+}
+
+TensorImpl FuncLeakyRelu::forward(const std::vector<const Tensor*>& inputs) {
+  saveForBackward(inputs);
+  return inputs[0]->data().ops()->leakyrelu(inputs[0]->data(), rate_);
+}
+
+std::vector<TensorImpl> FuncLeakyRelu::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  std::vector<TensorImpl> ret;
+  if (savedTensors[0].isRequiresGrad()) {
+        ret.push_back(grad * (savedTensors[0].data() > 0) + grad * (savedTensors[0].data() <= 0) * rate_);
   }
   return ret;
 }

@@ -74,13 +74,13 @@ void train(TrainArgs &args, nn::Module &model, Device device,
            data::DataLoader &dataLoader, optim::Optimizer &optimizer,
            int32_t epoch) {
   model.train();
-  model.to(Dtype::float16);
+
   Timer timer;
   timer.start();
   for (auto [batchIdx, batch] : dataLoader) {
     auto &data = batch[0].to(device);
     auto &target = batch[1].to(device);
-    data.to(Dtype::float16);
+
     optimizer.zeroGrad();
     auto output = model(data);
     auto loss = Function::nllloss(output, target);

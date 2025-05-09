@@ -169,6 +169,8 @@ Tensor Flatten::forward(Tensor &input) {
 
 Tensor Relu::forward(Tensor &input) { return Function::relu(input); }
 
+Tensor LeakyRelu::forward(Tensor &input) { return Function::leakyrelu(input, rate_); }
+
 Tensor Dropout::forward(Tensor &input) {
   return Function::dropout(input, p_, training_);
 }
@@ -184,6 +186,8 @@ Tensor LogSoftmax::forward(Tensor &input) {
 Tensor MaxPool2D::forward(Tensor &input) {
   return Function::maxPool2d(input, kernelSize_, stride_, padding_);
 }
+
+
 
 Conv2D::Conv2D(int32_t inFeatures, int32_t outFeatures, Size2D kernelSize,
                Size2D stride, Size2D padding, bool bias, Dtype fw_type ,

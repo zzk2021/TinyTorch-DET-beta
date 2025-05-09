@@ -13,6 +13,7 @@ add_executable(${PROJECT_NAME}
         demo_module.cpp
         demo_optim.cpp
         demo_mnist.cpp
+        demo_yolov3.cpp
         main.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE

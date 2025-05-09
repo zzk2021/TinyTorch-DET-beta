@@ -9,6 +9,7 @@
 #include "kernel/upsample.inc"
 #include "kernel/concat.inc"
 #include "kernel/split.inc"
+#include "kernel/leakyrelu.inc"
 
 namespace TinyTorch {
 

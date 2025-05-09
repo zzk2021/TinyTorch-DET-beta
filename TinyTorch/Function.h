@@ -5,7 +5,7 @@
  */
 
 #pragma once
-
+#include "Objectdetection/header.h"
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -27,6 +27,7 @@ enum FunctionType {
   Function_Sum,
   Function_Max,
   Function_Relu,
+  Function_LeakyRelu,
   Function_Flatten,
   Function_UnFlatten,
   Function_FlashAttention,
@@ -45,6 +46,8 @@ enum FunctionType {
   Function_BatchNorm,
   Function_MSELoss,
   Function_NLLLoss,
+  // object detection support
+  OBJDECT_EXPLORE_FUNCTIONTYPE()
 };
 
 class Function;
@@ -52,6 +55,7 @@ class TensorImpl;
 class Tensor;
 class Function : public std::enable_shared_from_this<Function> {
  public:
+  OBJDECT_EXPLORE_FUNCTION();
   static Tensor add(const Tensor& a, const Tensor& b);
   static Tensor concat(const Tensor& a, const Tensor& b, int32_t dim);
   static Tensor sub(const Tensor& a, const Tensor& b);
@@ -64,7 +68,7 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor sum(const Tensor& a);
   static Tensor max(const Tensor& a, int32_t dim_ ,bool keepdim);
   static Tensor relu(const Tensor& input);
-
+  static Tensor leakyrelu(const Tensor& input, float rate);
   static Tensor flatten(const Tensor& input, int32_t startDim, int32_t endDim);
   static Tensor upsample(const Tensor& input, int32_t scale_factor);
   static Tensor unflatten(const Tensor& input, int32_t dim,
@@ -142,6 +146,8 @@ class Function : public std::enable_shared_from_this<Function> {
  private:
   static std::unordered_map<FunctionType, std::string> funcTypeToString_;
 };
+
+
 
 #define DEFINE_FUNCTION_MEMBERS(TYPE)                                    \
   FunctionType type() const override { return TYPE; }                    \
@@ -236,6 +242,15 @@ class FuncMax : public Function {
 class FuncRelu : public Function {
  public:
   DEFINE_FUNCTION_MEMBERS(Function_Relu)
+};
+
+class FuncLeakyRelu : public Function {
+ public:
+  FuncLeakyRelu(float rate)
+      :  rate_(rate) {}
+  DEFINE_FUNCTION_MEMBERS(Function_LeakyRelu)
+  private:
+    float rate_;
 };
 
 class FuncFlatten : public Function {

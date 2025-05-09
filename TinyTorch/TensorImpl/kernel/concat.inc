@@ -1,5 +1,37 @@
 #pragma once
 
+__global__ void concat_backward_c1_kernel(
+    const float* grad_input,
+    float* grad_a,
+    float* grad_b,
+    const int64_t N,
+    const int64_t C_a,
+    const int64_t C_b,
+    const int64_t H,
+    const int64_t W
+) {
+    const int64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const int64_t elements_per_sample = (C_a + C_b) * H * W;
+    const int64_t total_elements = N * elements_per_sample;
+    for (int64_t i = idx; i < total_elements; i += blockDim.x * gridDim.x) {
+
+        const int64_t sample_idx = i / elements_per_sample;
+        const int64_t element_in_sample = i % elements_per_sample;
+
+        const int64_t c = element_in_sample / (H * W);
+        const int64_t hw = element_in_sample % (H * W);
+
+        if (c < C_a) {
+
+            const int64_t a_offset = sample_idx * C_a * H * W + c * H * W + hw;
+            grad_a[a_offset] = grad_input[i];
+        } else {
+            const int64_t b_c = c - C_a;
+            const int64_t b_offset = sample_idx * C_b * H * W + b_c * H * W + hw;
+            grad_b[b_offset] = grad_input[i];
+        }
+    }
+}
 
 template <typename T, int32_t NumDims = 4>
 __global__ void ppl_cukernel_concat(

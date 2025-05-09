@@ -144,7 +144,7 @@ template <typename OP>
 void TensorOpsCUDA::opSingle_(TensorImpl& t) const {
   if (t.type_ == Dtype::float16)
     kSingleOp_<OP, half><<<getGridSize(t.elemCount_), getBlockSize()>>>(
-       reinterpret_cast<half*>(t.data_), t.elemCount_);
+      reinterpret_cast<half*>(t.data_), t.elemCount_);
   if (t.type_ == Dtype::bfloat16)
     kSingleOp_<OP, __nv_bfloat16><<<getGridSize(t.elemCount_), getBlockSize()>>>(
       reinterpret_cast<__nv_bfloat16*> (t.data_) , t.elemCount_);
@@ -1481,6 +1481,39 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::split(
   return {ret0, ret1};
 }
 
+TensorImpl TensorOpsCUDA::leakyrelu(const TensorImpl& a, float rate){
+  int32_t threads_per_block = 256;
+  int32_t total_elems = a.numel();
+  int32_t blocks = (total_elems + threads_per_block - 1) / threads_per_block;
+   auto ret = TensorImpl::shape(a.shape_,a.device_,a.type_);
+
+  //auto ret = a * (a > 0.f) + a * (a <= 0.f) * rate;
+  //return ret;
+  if (a.type() == Dtype::float32)
+    leaky_relu_kernel<<<blocks, threads_per_block>>>(
+        a.data(),
+        ret.data_,
+        rate,
+        total_elems
+    );
+  else if (a.type() == Dtype::float16)
+    leaky_relu_kernel<<<blocks, threads_per_block>>>(
+        reinterpret_cast<const half*>(a.data_),
+        reinterpret_cast<half*>(ret.data_),
+        rate,
+        total_elems
+   );
+  else if (a.type() ==  Dtype::bfloat16)
+    leaky_relu_kernel<<<blocks, threads_per_block>>>(
+        reinterpret_cast<const __nv_bfloat16*>(a.data_),
+        reinterpret_cast<__nv_bfloat16*>(ret.data_),
+        rate,
+        total_elems
+   );
+  cudaDeviceSynchronize();
+  return ret;
+}
+
 TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim){
   Shape a_shape = a.shape();
   Shape b_shape = b.shape();
@@ -1488,19 +1521,20 @@ TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int3
   output_shape[dim] = a_shape[dim] + b_shape[dim];
 
   TensorImpl ret = TensorImpl::shape(output_shape, a.device(), a.type());
+  using type = float;
+
   if (dim==a_shape.size()-1){
     size_t num_blocks = 1;
-    size_t a_block_bytes = a_shape[dim] * sizeof(float);
-    size_t b_block_bytes = b_shape[dim] * sizeof(float);
-    size_t output_block_bytes = (a_shape[dim] + b_shape[dim]) * sizeof(float);
+    size_t a_block_bytes = a_shape[dim] * sizeof(type);
+    size_t b_block_bytes = b_shape[dim] * sizeof(type);
 
     for (int i = 0; i < a_shape.size() - 1; ++i) {
         num_blocks *= a_shape[i];
     }
     for (size_t i = 0; i < num_blocks; ++i) {
-        const float* a_src = a.data() + i * a_shape[dim];
-        const float* b_src = b.data() + i * b_shape[dim];
-        float* output_dst = ret.data_ + i * (a_shape[dim] + b_shape[dim]);
+        const type* a_src = reinterpret_cast<type*>(a.data_) + i * a_shape[dim];
+        const type* b_src = reinterpret_cast<type*>(b.data_) + i * b_shape[dim];
+        type* output_dst = reinterpret_cast<type*>(ret.data_) + i * (a_shape[dim] + b_shape[dim]);
         cudaMemcpyAsync(
             output_dst,
             a_src,
@@ -1516,11 +1550,26 @@ TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int3
     }
      return ret;
   }
+  if (dim == 1 && a_shape.size() == 4) {
+     cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    size_t num_samples = a_shape[0]; // N
+    size_t a_sample_size = a.strides_[0] * sizeof(type);
+    size_t b_sample_size = b.strides_[0] * sizeof(type);
+    for (size_t i = 0; i < num_samples; ++i) {
+        const type* a_src = reinterpret_cast<type*>(a.data_) + i * a.strides_[0];
+        const type* b_src = reinterpret_cast<type*>(b.data_) + i * b.strides_[0];
+        type* output_dst = reinterpret_cast<type*>(ret.data()) + i * (a.strides_[0] + b.strides_[0]);
+        cudaMemcpyAsync(output_dst, a_src, a_sample_size, cudaMemcpyDeviceToDevice);
+        cudaMemcpyAsync(output_dst + a.strides_[0], b_src, b_sample_size, cudaMemcpyDeviceToDevice);
+    }
+    cudaStreamSynchronize(stream);
+    cudaStreamDestroy(stream);
+    return ret;
+  }
   else{
      throw std::invalid_argument("Unsupported dim, we only support last dim concat");
-
   }
-  return ret;
 }
 
 std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, int32_t dim, int32_t a_dim_shape){
@@ -1537,7 +1586,6 @@ std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, i
     const int64_t num_dims = output_shape_1.size();
     int64_t inner_size = 1;
     for (int i = 0; i < num_dims - 1; ++i) {
-
         inner_size *= output_shape_1[i];
     }
 
@@ -1563,6 +1611,30 @@ std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, i
         );
     }
     }
+  else if (dim == 1 && grad_shape.size() == 4) {
+
+    const int64_t N = grad_shape[0];
+    const int64_t a_block_size = ret0.strides_[0];
+    const int64_t b_block_size = ret1.strides_[0];
+    const int64_t grad_block_size = ret0.strides_[0] + ret1.strides_[0];
+    for (int64_t i = 0; i < N; ++i) {
+      const float* grad_ptr = grad.data() + i * grad_block_size;
+      float* grad_a_ptr = ret0.data_ + i * a_block_size;
+      float* grad_b_ptr = ret1.data_ + i * b_block_size;
+      cudaMemcpyAsync(
+          grad_a_ptr,
+          grad_ptr,
+          a_block_size * sizeof(float),
+          cudaMemcpyDeviceToDevice
+      );
+      cudaMemcpyAsync(
+          grad_b_ptr,
+          grad_ptr + ret0.strides_[0],
+          b_block_size * sizeof(float),
+          cudaMemcpyDeviceToDevice
+      );
+    }
+  }
   else{
       throw std::invalid_argument("Unsupported dim, we only support last dim concat");
   }
@@ -1580,6 +1652,7 @@ TensorImpl TensorOpsCUDA::upsample_forward(const TensorImpl& a , int32_t scale_f
     dim3 block(kBlockSize, 1);
     UpsampleNearest2D2XForward<<<grid, block>>>(N, a.data_, h,
                                                 w, ret.data_);
+    cudaDeviceSynchronize();
   }
   else{}
   cudaError_t err = cudaGetLastError();

@@ -1137,7 +1137,18 @@ void TensorOpsCPU::gemm(float* c, const float * a, const float * b, int32_t m,
   }
 }
 
+TensorImpl TensorOpsCPU::leakyrelu(const TensorImpl& a, float rate) {
+    TensorImpl ret = TensorImpl::shape(a.shape_, a.device_, a.type_);
+    int N = a.numel();
+    for (int i = 0; i < N; ++i) {
+        ret.data_[i] = (a.data_[i] >= 0.0f) ? a.data_[i] : a.data_[i] * rate;
+    }
+    return ret;
+}
+
+
 TensorImpl TensorOpsCPU::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim_){
+
     throw std::runtime_error("We have not implement in CPU yet");
 }
 
@@ -1153,6 +1164,7 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCPU::split(
     throw std::runtime_error("We have not implement in CPU yet");
 
  }
+
 TensorImpl TensorOpsCPU::flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
                const TensorImpl& V , int32_t head) {
   throw std::runtime_error("We have not implement in CPU yet");

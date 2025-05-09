@@ -220,6 +220,7 @@ typedef enum ShapeCompatible_ {
   const TensorImpl& b, int32_t dim_) _T;                                       \
   _H std::vector<TensorImpl> concat_backward(const TensorImpl& a,              \
   int32_t dim_,int32_t a_dim_shape) _T;                                        \
+  _H TensorImpl leakyrelu(const TensorImpl& t, float rate) _T;                  \
   _H void gemm(float* c, const float* a, const float* b, int32_t m,            \
   int32_t k, int32_t n, bool transA, bool transBk,                             \
   Dtype Ta = Dtype::float32, Dtype Tc = Dtype::float32) _T;                    \

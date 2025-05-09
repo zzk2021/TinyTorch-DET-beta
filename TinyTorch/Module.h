@@ -12,6 +12,8 @@
 #include "Enums.h"
 namespace TinyTorch::nn {
 
+
+
 class Module {
 
 
@@ -25,6 +27,9 @@ class Module {
   virtual Tensor forward(Tensor &x) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2, Tensor &x3) { return {}; }
+
+  virtual std::vector<Tensor> forward(Tensor &x1, bool many) { return {}; }
+  virtual std::vector<Tensor> forward(std::vector<Tensor> &x, bool many) { return {}; }
   template <typename... Args>
   Tensor operator()(Args &&...args) {
     return forward(std::forward<Args>(args)...);
@@ -57,6 +62,19 @@ class Module {
 
 class Sequential : public Module {
  public:
+  struct Slice {
+    int start;
+    int end;
+
+    Slice(std::initializer_list<int> list) {
+    if (list.size() != 2) {
+      throw std::invalid_argument("Slice must have exactly two integers");
+    }
+    start = *list.begin();
+    end = *(list.begin() + 1);
+    }
+  };
+
   template <typename... Modules>
   explicit Sequential(Modules &&...modules) {
     modules_.reserve(sizeof...(Modules));
@@ -85,9 +103,25 @@ class Sequential : public Module {
   std::vector<Tensor *> states() override;
   void resetParameters() override;
   void zeroGrad() override;
-
+  int32_t getsize() {return modules_.size();};
   Module &operator[](const int index) { return *modules_[index]; }
-
+  Sequential operator[](const Slice& slice) const {
+    if (slice.start < 0 || slice.start >= modules_.size()) {
+      throw std::out_of_range("Start index out of range");
+    }
+    if (slice.end < 0 || slice.end > modules_.size()) {
+      throw std::out_of_range("End index out of range");
+    }
+    if (slice.start > slice.end) {
+      throw std::invalid_argument("Start index must be <= end index");
+    }
+    Sequential result;
+    result.modules_.reserve(slice.end -  slice.start);
+    for (int i = slice.start; i < slice.end; ++i) {
+      result.pushBack(modules_[i]);
+    }
+    return result;
+  }
  private:
   void setTraining(bool mode) override;
 
@@ -148,6 +182,14 @@ class Flatten : public Module {
 class Relu : public Module {
  public:
   Tensor forward(Tensor &input) override;
+};
+
+class LeakyRelu : public Module {
+ public:
+  explicit LeakyRelu(float rate=0.1) : rate_(rate) {}
+  Tensor forward(Tensor &input) override;
+ private:
+  float rate_;
 };
 
 class Dropout : public Module {
@@ -212,7 +254,8 @@ class Conv2D : public Module {
 
   Tensor &weights() { return weights_; }
   Tensor &bias() { return bias_; }
-
+  Size2D &kernelsize() {return kernelSize_;}
+  int32_t &outfeatures() {return outFeatures_;}
  private:
   int32_t inFeatures_;
   int32_t outFeatures_;

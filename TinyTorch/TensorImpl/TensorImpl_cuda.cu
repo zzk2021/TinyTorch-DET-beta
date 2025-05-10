@@ -1588,11 +1588,9 @@ std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, i
     for (int i = 0; i < num_dims - 1; ++i) {
         inner_size *= output_shape_1[i];
     }
-
     const int64_t a_dim_size = output_shape_1[dim];
     const int64_t b_dim_size = output_shape_2[dim];
     const int64_t concat_dim_size = a_dim_size + b_dim_size;
-
     for (int64_t i = 0; i < inner_size; ++i) {
         const float* grad_output_ptr = grad.data() + i * concat_dim_size;
         float* grad_a_ptr = ret0.data_ + i * a_dim_size;
@@ -1609,10 +1607,16 @@ std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, i
             b_dim_size * sizeof(float),
             cudaMemcpyDeviceToDevice
         );
+
     }
     }
   else if (dim == 1 && grad_shape.size() == 4) {
 
+      cudaStream_t stream;
+     cudaStreamCreate(&stream);
+
+
+   const int64_t total_elements = grad.numel();
     const int64_t N = grad_shape[0];
     const int64_t a_block_size = ret0.strides_[0];
     const int64_t b_block_size = ret1.strides_[0];
@@ -1634,6 +1638,8 @@ std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, i
           cudaMemcpyDeviceToDevice
       );
     }
+    cudaStreamSynchronize(stream);
+
   }
   else{
       throw std::invalid_argument("Unsupported dim, we only support last dim concat");

@@ -18,6 +18,7 @@ struct CublasDataType;
 template <>
 struct CublasDataType<Dtype::float32> {
     static constexpr cudaDataType_t value = CUDA_R_32F;
+
 };
 
 template <>

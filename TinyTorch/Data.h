@@ -115,6 +115,28 @@ class DatasetMNIST : public Dataset {
   std::shared_ptr<transforms::Transform> transform_;
 };
 
+class DatasetYOLO : public Dataset {
+ public:
+  enum YOLODataType {
+    TRAIN,
+    TEST,
+  };
+  DatasetYOLO(const std::string& annotation_file, YOLODataType type,
+               const std::shared_ptr<transforms::Transform>& transform);
+
+  size_t size() const override { return size_; }
+  std::vector<Tensor> getItem(size_t idx) override;
+ private:
+  std::vector<std::vector<float>> images_;
+  std::vector<float> labels_;
+  int32_t height_ = 0;
+  int32_t width_ = 0;
+  size_t size_ = 0;
+  std::vector<std::string> annotation_lines_;
+  std::shared_ptr<transforms::Transform> transform_;
+  std::vector<std::string> readAnnotationFile(const std::string& path);
+};
+
 class DataLoader {
  public:
   DataLoader(const std::shared_ptr<Dataset>& dataset, size_t batchSize,

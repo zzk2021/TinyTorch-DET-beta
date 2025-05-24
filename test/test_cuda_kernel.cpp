@@ -11,6 +11,85 @@
 
 using namespace TinyTorch;
 
+TEST(TEST_cuda_kernel, func_from_mask) {
+  // test scale_factor = 2    device = CUDA
+  Array4d ary = {{
+                    {{1.,2.},{3.,4.}},
+                    {{5.,-6.},{7.,8.}},
+                    {{9.,10.},{-11.,12.}},
+                    {{13.,14.},{15.,16.}}
+                 }, {
+                    {{1.,-2.},{3.,4.}},
+                    {{5.,6.},{-7.,8.}},
+                    {{9.,10.},{11.,12.}},
+                    {{-13.,14.},{-15.,16.}}
+                 }};
+  Tensor a = Tensor(ary, true);
+  Tensor mask = Tensor(a.data() > 0, false);
+  auto b = a[mask];
+
+  Tensor loss1 = b.sum();
+  loss1.backward();
+  EXPECT_THAT(b.data().toList(), ElementsAre(1,2,3,4,5,7,8,9,10,12,13,14,15,16,1,3,4,5,6,8,9,10,11,12,14,16));
+  EXPECT_THAT(a.getGrad().toList(), ElementsAre(
+    1, 1, 1, 1,
+    1, 0, 1, 1,
+    1, 1, 0, 1,
+    1, 1, 1, 1,
+
+    1, 0, 1, 1,
+    1, 1, 0, 1,
+    1, 1, 1, 1,
+    0, 1, 0, 1));
+  Tensor a_gpu = a.to(Device::CUDA);
+  Tensor mask_gpu = mask.to(Device::CUDA);
+  auto b_gpu = a_gpu[mask_gpu];
+
+  Tensor loss = b_gpu.sum();
+  loss.backward();
+
+  EXPECT_THAT(b_gpu.data().toList(), ElementsAre(1,2,3,4,5,7,8,9,10,12,13,14,15,16,1,3,4,5,6,8,9,10,11,12,14,16));
+  EXPECT_THAT(a_gpu.getGrad().toList(), ElementsAre(
+    1, 1, 1, 1,
+    1, 0, 1, 1,
+    1, 1, 0, 1,
+    1, 1, 1, 1,
+
+    1, 0, 1, 1,
+    1, 1, 0, 1,
+    1, 1, 1, 1,
+    0, 1, 0, 1));
+}
+
+TEST(TEST_cuda_kernel, func_from_slice) {
+  // test scale_factor = 2    device = CUDA
+  Array4d ary = {{
+                    {{1.,2.},{3.,4.}},
+                    {{5.,6.},{7.,8.}},
+                    {{9.,10.},{11.,12.}},
+                    {{13.,14.},{15.,16.}}
+                 }, {
+                    {{1.,2.},{3.,4.}},
+                    {{5.,6.},{7.,8.}},
+                    {{9.,10.},{11.,12.}},
+                    {{13.,14.},{15.,16.}}
+                 }};
+  Tensor a = Tensor(ary, true);
+  auto b = a[{{},{0, 2},{0, 2},{0, 1}}];
+  EXPECT_THAT(b.data().toList(), ElementsAre(1., 3.,5.,7.,1.,3.,5.,7.));
+  Tensor a_gpu = a.to(Device::CUDA);
+  auto b_gpu = a_gpu[{{},{0, 2},{0, 2},{0, 1}}];
+  auto c_gpu = b_gpu[{{},{},{0, 1},{}}];
+  auto d_gpu = b_gpu[{{},{},{1, 2},{}}];
+  Tensor loss = c_gpu.sum() + d_gpu.sum();
+  loss.backward();
+
+  EXPECT_THAT(c_gpu.data().toList(), ElementsAre(1., 5., 1., 5.));
+  EXPECT_THAT(d_gpu.data().toList(), ElementsAre(3., 7., 3., 7.));
+  EXPECT_THAT(a_gpu.getGrad().toList(),
+              ElementsAre(1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+}
+
 TEST(TEST_cuda_kernel, func_upsample_cuda) {
   // test scale_factor = 2    device = CUDA
   Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);

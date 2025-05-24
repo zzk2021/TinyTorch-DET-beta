@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <numeric>
 
 #ifdef USE_BLAS
 #ifdef __APPLE__
@@ -433,7 +434,6 @@ void TensorOpsCPU::copyDeviceToHost(void* dst, const void* src, size_t count) {
   std::memcpy(dst, src, count);
 }
 
-
 void TensorOpsCPU::fillConstant_(float* dst, float val, size_t count) {
   std::fill(dst, dst + count, val);
 }
@@ -471,6 +471,106 @@ void TensorOpsCPU::fillRandBernoulli_(TensorImpl& t, float p) {
   for (int32_t i = 0; i < t.elemCount_; i++) {
     t.data_[i] = distribution(generator);
   }
+}
+
+std::pair<TensorImpl, TensorImpl> TensorOpsCPU::from_mask(const TensorImpl& a,
+                                   const TensorImpl& b) {
+    std::vector<int32_t> out_indices;
+    int32_t count = 0;
+    for (size_t i = 0; i < b.numel(); ++i) {
+        if (b.data()[i] != 0.0f) ++count;
+    }
+    TensorImpl result = TensorImpl::shape({count}, a.device_, a.type_);
+    out_indices.clear();
+    out_indices.reserve(count);
+    int32_t index = 0;
+
+    std::vector<float> indices;
+    indices.resize(count);
+    for (int32_t i = 0; i < b.numel(); ++i) {
+        if (b.data()[i] != 0.0f) {
+            result.data_[index] = a.data_[i];
+            indices[index] = static_cast<float>(i);
+            ++index;
+        }
+    }
+    TensorImpl indices_t =  TensorImpl(indices);
+    return {result, indices_t};
+}
+
+TensorImpl TensorOpsCPU::from_mask_backward(const TensorImpl& grad,
+                                      const TensorImpl& indices,
+                                     const std::vector<int32_t>& a_shape) {
+    TensorImpl grad_a = TensorImpl::zeros(a_shape, grad.device_, grad.type_);
+    for (size_t i = 0; i < indices.numel(); ++i) {
+        grad_a.data_[static_cast<int>(indices.data_[i])] = grad.data_[i];
+    }
+    return grad_a;
+}
+
+TensorImpl TensorOpsCPU::from_slice(const TensorImpl& a, std::vector<int> starts, std::vector<int> ends) {
+    int32_t ndim = a.shape().size();
+    // Step 1: Compute new shape
+    std::vector<int> new_shape(ndim);
+    for (int i = 0; i < ndim; ++i) {
+        new_shape[i] = ends[i] - starts[i];
+    }
+    // Step 2: Create new tensor
+    TensorImpl result = TensorImpl::shape(new_shape);
+
+    // Step 3: Allocate memory for new tensor
+    int new_size = result.numel();
+
+    // Step 4: Copy data using linear indexing
+    int total_elements = new_size;
+    for (int dst_idx = 0; dst_idx < total_elements; ++dst_idx) {
+        // Convert linear index to multi-dimensional indices for new tensor
+        std::vector<int> new_indices(ndim);
+        int temp_idx = dst_idx;
+        for (int dim = 0; dim < ndim; ++dim) {
+            new_indices[dim] = temp_idx / result.strides_[dim];
+            temp_idx %= result.strides_[dim];
+        }
+
+        // Calculate corresponding source index in original tensor
+        int src_offset = 0;
+        for (int dim = 0; dim < ndim; ++dim) {
+            src_offset += (new_indices[dim] + starts[dim]) * a.strides_[dim];
+        }
+
+        // Copy data
+        result.data_[dst_idx] = a.data_[src_offset];
+    }
+
+    return result;
+
+}
+
+void TensorOpsCPU::from_slice_backward(TensorImpl &ret, const TensorImpl &b, std::vector<int> starts, std::vector<int> ends){
+    int ndim = ret.shape().size();
+    // Step 1: Compute new shape
+    // Step 2: Create new tensor
+    // Step 3: Allocate memory for new tensor
+    int new_size = b.numel();
+
+    // Step 4: Copy data using linear indexing
+    int total_elements = new_size;
+    for (int dst_idx = 0; dst_idx < total_elements; ++dst_idx) {
+        // Convert linear index to multi-dimensional indices for new tensor
+        std::vector<int> new_indices(ndim);
+        int temp_idx = dst_idx;
+        for (int dim = 0; dim < ndim; ++dim) {
+            new_indices[dim] = temp_idx / b.strides_[dim];
+            temp_idx %= b.strides_[dim];
+        }
+        // Calculate corresponding source index in original tensor
+        int src_offset = 0;
+        for (int dim = 0; dim < ndim; ++dim) {
+            src_offset += (new_indices[dim] + starts[dim]) * ret.strides_[dim];
+        }
+        // Copy data
+        ret.data_[src_offset] = b.data_[dst_idx];
+    }
 }
 
 TensorImpl TensorOpsCPU::add(const TensorImpl& a, const TensorImpl& b) {

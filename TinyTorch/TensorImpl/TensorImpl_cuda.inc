@@ -5,11 +5,14 @@
  */
 
 #pragma once
-
+#include <cuda_bf16.h>
+#include <cuda_fp16.h>
 #include "kernel/upsample.inc"
 #include "kernel/concat.inc"
 #include "kernel/split.inc"
 #include "kernel/leakyrelu.inc"
+#include "kernel/slice.inc"
+#include "kernel/mask.inc"
 
 namespace TinyTorch {
 
@@ -360,6 +363,12 @@ __device__ __forceinline__ void cuGetSubIndices(
   }
 }
 
+template<typename T>
+__global__ void kFillConstant(T* __restrict__ t, const T val,
+                              const size_t n) {
+}
+
+template<>
 __global__ void kFillConstant(float* __restrict__ t, const float val,
                               const size_t n) {
   const auto index = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
@@ -370,6 +379,34 @@ __global__ void kFillConstant(float* __restrict__ t, const float val,
     if (index + 1 < n) t[index + 1] = val;
     if (index + 2 < n) t[index + 2] = val;
   }
+}
+
+template<>
+__global__ void kFillConstant(__half* __restrict__ t, const __half val, const size_t n) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t vec_index = index * 2;
+
+    if (vec_index + 1 < n) {
+        *((__half2*)(t + vec_index)) = make_half2(val, val);
+    } else {
+        if (vec_index < n) t[vec_index] = val;
+        if (vec_index + 1 < n) t[vec_index + 1] = val;
+    }
+}
+
+template<>
+__global__ void kFillConstant(__nv_bfloat16* __restrict__ t,
+                               const __nv_bfloat16 val,
+                               const size_t n) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const size_t vec_index = index * 2;
+
+    if (vec_index + 1 < n) {
+        *((__nv_bfloat162*)(t + vec_index)) = make_bfloat162(val, val);
+    } else {
+        if (vec_index < n) t[vec_index] = val;
+        if (vec_index + 1 < n) t[vec_index + 1] = val;
+    }
 }
 
 __global__ void kFillLinSpace(float* __restrict__ dst, const float start,
@@ -959,7 +996,7 @@ __global__ void kReduceDim(TensorCudaCtx<T> values, float* indices,
 }
 
 template <typename T = float>
-__global__ void kReduceSum(float* retPtr, const TensorCudaCtx<T> t,
+__global__ void kReduceSum(T* const retPtr, const TensorCudaCtx<T> t,
                            const FixedVector<uint8_t> inAxis, int n) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < n) {

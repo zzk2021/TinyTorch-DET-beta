@@ -3,16 +3,37 @@ project(TinyTorch)
 
 option(USE_CUDA "Use CUDA" ON)
 option(USE_BLAS "Use BLAS" ON)
+option(USE_OPENCV "Use OPENCV" ON)
+
 if (APPLE)
     set(USE_CUDA OFF)
 endif ()
 
 message(STATUS "USE_CUDA ${USE_CUDA}")
 message(STATUS "USE_BLAS ${USE_BLAS}")
+message(STATUS "USE_OPENCV ${USE_OPENCV}")
 
 if (${USE_CUDA})
     add_definitions(-DUSE_CUDA)
 endif ()
+
+
+if (${USE_OPENCV})
+    # you need set environment path called OpenCV_DIR, usually path/opencv/build
+    if(NOT DEFINED ENV{OpenCV_DIR})
+        message(FATAL_ERROR "OpenCV_DIR environment variable is not set. Please set it to the path of your OpenCV build directory.")
+    endif()
+    find_package(OpenCV REQUIRED COMPONENTS core imgcodecs)
+    set(OpenCV_STATIC ON)
+    message(STATUS "OpenCV library status:")
+    message(STATUS "    version: ${OpenCV_VERSION}")
+    message(STATUS "    libraries: ${OpenCV_LIBS}")
+    message(STATUS "    include path: ${OpenCV_INCLUDE_DIRS}")
+
+    add_definitions(-DUSE_OPENCV)
+endif()
+
+
 # 设置CUDA的编译标志
 #set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --keep --keep-dir tmp -gencode arch=compute_50,code=sm_50 -v")
 add_subdirectory(TinyTorch)

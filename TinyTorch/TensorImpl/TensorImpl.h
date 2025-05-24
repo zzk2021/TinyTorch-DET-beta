@@ -14,6 +14,11 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+#ifdef USE_OPENCV
+#include <opencv2/opencv.hpp>
+#endif
+
 #include "TensorImpl_base.h"
 
 namespace TinyTorch {
@@ -24,6 +29,7 @@ class TensorOpsCPU;
 #ifdef USE_CUDA
 class TensorOpsCUDA;
 #endif
+
 
 struct Storage {
   Storage(size_t nbytes, Device device, Dtype T = Dtype
@@ -55,6 +61,13 @@ class TensorImpl {
   TensorImpl &operator=(const TensorImpl &other);
   TensorImpl &operator=(TensorImpl &&other) noexcept;
 
+#ifdef USE_OPENCV
+  template <typename T, typename = std::enable_if_t<
+        std::is_same_v<std::decay_t<T>, cv::Mat>>>
+  explicit TensorImpl(T&& image,
+                      Device device = getDefaultDevice());
+#endif
+
   // create
   explicit TensorImpl(const Array1d &values1d,
                       Device device = getDefaultDevice());
@@ -64,6 +77,8 @@ class TensorImpl {
                       Device device = getDefaultDevice());
   explicit TensorImpl(const Array4d &values4d,
                       Device device = getDefaultDevice());
+  explicit TensorImpl(const Array5d &values5d,
+                      Device device = getDefaultDevice());
 
   static TensorImpl shape(const Shape &shape,
                           Device device = getDefaultDevice(),Dtype T = getDefaultDtype());
@@ -72,16 +87,13 @@ class TensorImpl {
                            Device device = getDefaultDevice(), Dtype T = getDefaultDtype());
 
   static TensorImpl ones(const Shape &shape,
-                         Device device = getDefaultDevice());
+                         Device device = getDefaultDevice(), Dtype T = getDefaultDtype());
 
   static TensorImpl onesLike(const TensorImpl &t,
-                             Device device = getDefaultDevice());
-
-  static TensorImpl zeros(const Shape &shape,
-                          Device device = getDefaultDevice());
-
+                             Device device = getDefaultDevice(), Dtype T = getDefaultDtype());
+  static TensorImpl zeros(const Shape &s, Device device = getDefaultDevice(), Dtype T = getDefaultDtype());
   static TensorImpl zerosLike(const TensorImpl &t,
-                              Device device = getDefaultDevice());
+                              Device device = getDefaultDevice(), Dtype T = getDefaultDtype());
 
   static TensorImpl rand(const Shape &shape,
                          Device device = getDefaultDevice());
@@ -226,7 +238,7 @@ class TensorImpl {
   TensorImpl clamp(float min, float max) const {
     return clamp(*this, min, max);
   }
-
+  TensorImpl from_slice(const TensorImpl& a, std::vector<int> starts, std::vector<int> ends);
   // aggregation
   static TensorImpl min(const TensorImpl &t);
   static TensorImpl max(const TensorImpl &t);
@@ -470,5 +482,26 @@ class TensorImpl {
   static Device defaultDevice_;
   static Dtype defaultType_;
 };
+
+#ifdef USE_OPENCV
+template <typename T, typename>
+TensorImpl::TensorImpl(T&& image, Device device){
+    device_ = device;
+    shape_ = {(int32_t)image.channels(), (int32_t)image.rows, (int32_t)image.cols};
+    initMeta();
+    initData();
+    for (int y = 0; y < image.rows; ++y) {
+        const uchar* row_ptr = image.ptr(y);
+        for(int x = 0; x < image.cols; ++x) {
+            for(int c = 0; c < image.channels(); ++c) {
+                float value = static_cast<float>(row_ptr[x * image.channels() + c]) / 255.0f;
+                ops_->copyHostToDevice(data_ + c * strides_[0] + y * strides_[1],
+                             &value,sizeof(float));
+            }
+        }
+    }
+
+}
+#endif
 
 }  // namespace TinyTorch

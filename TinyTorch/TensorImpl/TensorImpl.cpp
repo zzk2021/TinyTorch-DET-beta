@@ -12,9 +12,8 @@
 #include "TensorImpl_cpu.h"
 #ifdef USE_CUDA
 #include "TensorImpl_cuda.cuh"
-#include "../Enums.h"
 #endif
-
+#include "../Enums.h"
 namespace TinyTorch {
 
 #define TENSOR_DEVICE_AVAILABLE(device, ret)                            \
@@ -108,6 +107,7 @@ TensorImpl &TensorImpl::operator=(TensorImpl &&other) noexcept {
   return *this;
 }
 
+
 TensorImpl::TensorImpl(const Array1d &values1d, Device device) {
   device_ = device;
   shape_ = {(int32_t)values1d.size()};
@@ -157,6 +157,25 @@ TensorImpl::TensorImpl(const Array4d &values4d, Device device) {
   }
 }
 
+TensorImpl::TensorImpl(const Array5d &values5d, Device device) {
+  device_ = device;
+  shape_ = {(int32_t)values5d.size(), (int32_t)values5d[0].size(),
+            (int32_t)values5d[0][0].size(),(int32_t)values5d[0][0][0].size()
+            ,(int32_t)values5d[0][0][0][0].size()};
+  initMeta();
+  initData();
+  for (int32_t idx = 0; idx < shape_[0]; idx++) {
+    for (int32_t k = 0; k < shape_[1]; k++) {
+        for (int32_t j = 0; j < shape_[2]; j++) {
+            for (int32_t l = 0; l < shape_[3]; l++) {
+                ops_->copyHostToDevice(data_ + idx * strides_[0] + k * strides_[1] + j * strides_[2] + l * strides_[3],
+                                 values5d[idx][k][j][l].data(),
+                                 values5d[idx][k][j][l].size() * sizeof(float));
+          }
+        }
+      }
+    }
+}
 void TensorImpl::initMeta() {
   dimCount_ = (int32_t)shape_.size();
   elemCount_ = 1;
@@ -261,24 +280,24 @@ TensorImpl TensorImpl::scalar(const float &value, Device device, Dtype T) {
   return ret;
 }
 
-TensorImpl TensorImpl::ones(const Shape &s, Device device) {
-  TensorImpl ret = shape(s, device);
+TensorImpl TensorImpl::ones(const Shape &s, Device device, Dtype type) {
+  TensorImpl ret = shape(s, device, type);
   ret.ops_->fillConstant_(ret, 1.f);
   return ret;
 }
 
-TensorImpl TensorImpl::onesLike(const TensorImpl &t, Device device) {
-  return ones(t.shape(), device);
+TensorImpl TensorImpl::onesLike(const TensorImpl &t, Device device, Dtype type) {
+  return ones(t.shape(), device, type);
 }
 
-TensorImpl TensorImpl::zeros(const Shape &s, Device device) {
-  TensorImpl ret = shape(s, device);
+TensorImpl TensorImpl::zeros(const Shape &s, Device device, Dtype type) {
+  TensorImpl ret = shape(s, device, type);
   ret.ops_->fillConstant_(ret, 0.f);
   return ret;
 }
 
-TensorImpl TensorImpl::zerosLike(const TensorImpl &t, Device device) {
-  return zeros(t.shape(), device);
+TensorImpl TensorImpl::zerosLike(const TensorImpl &t, Device device, Dtype type) {
+  return zeros(t.shape(), device, type);
 }
 
 TensorImpl TensorImpl::rand(const Shape &s, Device device) {
@@ -939,6 +958,11 @@ TensorImpl TensorImpl::clamp(const TensorImpl &t, float min, float max) {
   return t.ops_->clamp(t, min, max);
 }
 
+TensorImpl TensorImpl::from_slice(const TensorImpl& t, std::vector<int> starts, std::vector<int> ends) {
+  TENSOR_CHECK_EMPTY_RET(t, {});
+  return t.ops_->from_slice(t, starts, ends);
+}
+
 TensorImpl TensorImpl::min(const TensorImpl &t) {
   TENSOR_CHECK_EMPTY_RET(t, {});
   return t.ops_->min(t);
@@ -1135,6 +1159,8 @@ TensorImpl TensorImpl::index(const std::vector<int32_t> &indices) const {
   }
   auto retTensor = shape(retShape, device_, type_);
   assert(dimStride == retTensor.elemCount_);
+
+
   ops_->copyOnDevice(retTensor.data_, &data_[dataIdx],
                      dimStride * sizeof(float));
   return retTensor;

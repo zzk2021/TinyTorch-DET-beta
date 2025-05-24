@@ -2,6 +2,8 @@
 
 #include "Torch.h"
 #include "Init.h"
+#include "../TinyTorch/Objectdetection/Function_explore.h"
+#include <mdspan>
 using namespace TinyTorch;
 
 class BasicBlock : public nn::Module {
@@ -124,12 +126,12 @@ class YoloHead : public nn::Module {
             auto x_ = backbone.forward(x, true);
             auto x2 =  x_[0];auto x1 =  x_[1];auto x0 =  x_[2];
             auto out0_branch = last_layer0[{0, 5}](x1);
-            auto out0 = last_layer0[{5, last_layer0.getsize()}](out0_branch);
+            auto out0 = last_layer0[{5, static_cast<int>(last_layer0.getsize())}](out0_branch);
             auto x1_in = last_layer1_conv(out0_branch);
             x1_in = Function::upsample(x1_in,2);
             x1_in = Function::concat(x1_in, x1, -1);
             auto out1_branch = last_layer1[{0, 5}](x1_in);
-            auto out1  = last_layer1[{5,last_layer1.getsize()}](out1_branch);
+            auto out1  = last_layer1[{5,static_cast<int>(last_layer1.getsize())}](out1_branch);
             auto x2_in = last_layer2_conv(out1_branch);
             x2_in = Function::upsample(x2_in,2);
             x2_in = Function::concat(x2_in, x2, 1);
@@ -203,6 +205,55 @@ class YoloLoss : public nn::Module {
 
 
             }
+        Tensor forward(Tensor &inputs, Array3d &targets) override {
+           Tensor loss  = Tensor::scalar(0);
+           for (int l=0;l < inputs.shape()[0];l+=1){
+            Tensor input = inputs[{{l,l+1},{},{},{},{}}];
+            auto bs      = input.shape()[0];
+            auto in_h    = input.shape()[2];
+            auto in_w    =  input.shape()[3];
+            auto stride_h = input_shape_[0] / in_h;
+            auto stride_w = input_shape_[1] / in_w;
+            std::vector<std::vector<float>> scaled_anchors;
+            for (const auto& anchor : anchors_) {
+                float a_w = anchor[0];
+                float a_h = anchor[1];
+                float scaled_w = a_w / static_cast<float>(stride_w);
+                float scaled_h = a_h / static_cast<float>(stride_h);
+                scaled_anchors.push_back({scaled_w, scaled_h});
+            }
+            auto prediction = input.reshape({bs,
+                                         static_cast<int>(anchors_mask_[l].size()),
+                                         bbox_attrs_, in_h, in_w});
+            auto x = Function::sigmoid(prediction[{{},{},{0,1},{},{}}]);
+            auto y = Function::sigmoid(prediction[{{},{},{1,2},{},{}}]);
+            auto w = Function::sigmoid(prediction[{{},{},{2,3},{},{}}]);
+            auto h = Function::sigmoid(prediction[{{},{},{3,4},{},{}}]);
+            auto conf = Function::sigmoid(prediction[{{},{},{4,5},{},{}}]);
+            auto pred_cls = Function::sigmoid(prediction[{{},{},{5,-1},{},{}}]);
+            auto [y_true, noobj_mask, box_loss_scale, obj_mask, n] = get_target_(l, targets, scaled_anchors, in_h, in_w);
+            Tensor y_true_t = Tensor(y_true, false);
+            Tensor box_loss_scale_t =  Tensor(box_loss_scale, false);
+            Tensor obj_mask_t =  Tensor(obj_mask, false);
+            Tensor noobj_mask_t =  Tensor(noobj_mask, false);
+            box_loss_scale_t = 2 - box_loss_scale_t;
+            box_loss_scale_t.to(input.device());
+            obj_mask_t.to(input.device());
+            y_true_t.to(input.device());
+            if (n != 0){
+                auto loss_x  = (Function::bceLoss(x.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{0,1}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
+                auto loss_y  = (Function::bceLoss(y.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{1,2}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
+                auto loss_w  = (Function::mseLoss(w.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{2,3}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
+                auto loss_h  = (Function::mseLoss(h.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{3,4}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
+                auto loss_loc = (loss_x + loss_y + loss_h + loss_w) * 0.1;
+                auto loss_cls = Function::bceLoss(pred_cls.squeeze()[obj_mask_t],y_true_t[{{},{},{},{},{5,-1}}].squeeze()[obj_mask_t], TinyTorch::MEAN);
+                loss  += loss_loc * box_ratio_ + loss_cls * cls_ratio_;
+            }
+            auto loss_conf   = Function::bceLoss(conf, obj_mask_t, TinyTorch::MEAN)[noobj_mask_t + obj_mask_t];
+            loss        += loss_conf  * obj_ratio_;
+           }
+           return loss;
+        }
     private:
       int32_t num_classes_;
       std::vector<std::vector<int32_t>> anchors_;
@@ -214,15 +265,80 @@ class YoloLoss : public nn::Module {
       float cls_ratio_ ;
       float ignore_threshold_;
       nn::MSELoss mseloss;
-      std::vector<Tensor> get_target(int32_t l, Tensor targets, std::vector<int32_t> anchors, int32_t in_h, int32_t in_w){
-        int bs               = targets.shape()[0];
-        auto noobj_mask      = Tensor(TensorImpl::shape({bs, static_cast<int>(anchors_mask_[l].size()), in_h, in_w}), true);
-        auto box_loss_scale  = Tensor(TensorImpl::shape({bs, static_cast<int>(anchors_mask_[l].size()), in_h, in_w}), true);
-        auto y_true          = Tensor(TensorImpl::shape({bs, static_cast<int>(anchors_mask_[l].size()), in_h, in_w, bbox_attrs_}), true);
+      std::tuple<Array5d, Array4d, Array4d, Array4d, int> get_target_(int32_t l, Array3d targets, Array2d anchors, int32_t in_h, int32_t in_w){
+        int bs               = targets.size();
+        Array4d noobj_mask(bs,
+            Array3d(
+                static_cast<int>(anchors_mask_[l].size()),
+                Array2d(in_h,Array1d(in_w, 1.0f))));
+
+        Array4d box_loss_scale(bs,
+            Array3d(
+                static_cast<int>(anchors_mask_[l].size()),
+                Array2d(in_h,Array1d(in_w, 0.0f))));
+
+        std::vector<Array4d> y_true(bs,
+            Array4d(
+                static_cast<int>(anchors_mask_[l].size()),
+                Array3d(in_h,Array2d (in_w,
+                Array1d(bbox_attrs_,0.0f)))));
+
+        Array4d obj_mask(bs,
+            Array3d(
+            static_cast<int>(anchors_mask_[l].size()),
+            Array2d(in_h, Array1d(in_w, false))));
+        int n = 0;
         for(int b=0;b<bs;b+=1){
+          if (targets[b].empty())
+            continue;
+          Array2d batch_target(targets[b].size(), std::vector<float>(5, 0.0f));
 
+          for (size_t t = 0; t < batch_target.size(); ++t) {
+            batch_target[t][0] = targets[b][t][0] * in_w;
+            batch_target[t][2] = targets[b][t][2] * in_w;
+            batch_target[t][1] = targets[b][t][1] * in_h;
+            batch_target[t][3] = targets[b][t][3] * in_h;
+            batch_target[t][4] = targets[b][t][4];
+          }
+
+          int M = batch_target.size();
+          Array2d anchor_shapes(M, std::vector<float>(4, 0.0f));
+          for (size_t i = 0; i < M; ++i) {
+            anchor_shapes[i][2] = anchors[i][0]; // w
+            anchor_shapes[i][3] = anchors[i][1]; // h
+          }
+          Array2d gt_box(M, std::vector<float>(4, 0.0f));
+          for (size_t i = 0; i < M; ++i) {
+            gt_box[i][2] = batch_target[i][2];
+            gt_box[i][3] = batch_target[i][3];
+          }
+
+          auto best_ns = FindBestAnchors(CalculateIOU(gt_box, anchor_shapes));
+          for (int t=0;t<best_ns.size();t+=1){
+            auto best_n = best_ns[t];
+
+            if (std::find(anchors_mask_[l].begin(), anchors_mask_[l].end(), best_n) == anchors_mask_[l].end()) {
+                continue;
+            }
+            int k = std::distance(anchors_mask_[l].begin(),
+                          std::find(anchors_mask_[l].begin(), anchors_mask_[l].end(), best_n));
+            int i = static_cast<int>(std::floor(batch_target[t][0]));
+            int j = static_cast<int>(std::floor(batch_target[t][1]));
+            int c = static_cast<int>(batch_target[t][4]);
+            noobj_mask[b][k][j][i] = 0.0f;
+            y_true[b][k][j][i][0] = batch_target[t][0] - static_cast<float>(i);
+            y_true[b][k][j][i][1] = batch_target[t][1] - static_cast<float>(j);
+            y_true[b][k][j][i][2] = std::log(batch_target[t][2] / anchors[best_n][0]); //batch_target[t][0] - static_cast<float>(i);
+            y_true[b][k][j][i][3] = std::log(batch_target[t][3] / anchors[best_n][0]); //batch_target[t][0] - static_cast<float>(i);
+            y_true[b][k][j][i][4] = 1;
+            y_true[b][k][j][i][c+5] = 1;
+            box_loss_scale[b][k][j][i] = batch_target[t][2] * batch_target[t][3] / in_w / in_h;
+            obj_mask[b][k][j][i] = true;
+            n+=1;
+          }
         }
-
-
+        return std::make_tuple(y_true, noobj_mask, box_loss_scale, obj_mask, n);
       }
+
+
 };

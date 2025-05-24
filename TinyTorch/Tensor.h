@@ -7,10 +7,21 @@
 #pragma once
 
 #include <memory>
+#include <optional>
+#ifdef USE_OPENCV
+#include <opencv2/opencv.hpp>
+#endif
 
 #include "TensorImpl/TensorImpl.h"
 
 namespace TinyTorch {
+
+struct Slice {
+  std::optional<int> start;
+  std::optional<int> end;
+  Slice() = default;
+  Slice(std::initializer_list<int> list);
+};
 
 struct AutogradMeta;
 class Function;
@@ -26,9 +37,18 @@ class Tensor {
   explicit Tensor(const Array2d &values2d, bool requiresGrad = false);
   explicit Tensor(const Array3d &values3d, bool requiresGrad = false);
   explicit Tensor(const Array4d &values4d, bool requiresGrad = false);
+  explicit Tensor(const Array5d &values5d, bool requiresGrad = false);
+
+
+    #ifdef USE_OPENCV
+    template <typename T, typename = std::enable_if_t<
+        std::is_same_v<std::decay_t<T>, cv::Mat>>>
+    explicit Tensor(T&& mat, bool requiresGrad = false);
+    #endif
 
   static Tensor shape(const Shape &shape, bool requiresGrad = false);
   static Tensor scalar(const float &value, bool requiresGrad = false);
+  static Tensor scalar(const float &value, bool requiresGrad, Device device, Dtype type);
   static Tensor ones(const Shape &shape, bool requiresGrad = false);
   static Tensor onesLike(const Tensor &t, bool requiresGrad = false);
   static Tensor zeros(const Shape &shape, bool requiresGrad = false);
@@ -62,6 +82,12 @@ class Tensor {
                           const std::vector<int32_t> &sizes);
 
   // functions
+  Tensor from_slice(std::vector<int> starts, std::vector<int> ends) const;
+
+  Tensor operator[](const std::vector<Slice>& slices) const;
+  float operator[](const std::vector<int>& indices) const;
+  Tensor operator[](const Tensor& a) const;
+
   Tensor operator+(const Tensor &other) const;
   Tensor operator-(const Tensor &other) const;
   Tensor operator*(const Tensor &other) const;
@@ -93,7 +119,7 @@ class Tensor {
   Tensor pow(const float &exp) const;
   Tensor pow(const Tensor &exp) const;
   Tensor sum() const;
-
+  Tensor mean() const;
   Tensor squeeze(int32_t dim = -1) const;
   Tensor unsqueeze(int32_t dim) const;
 

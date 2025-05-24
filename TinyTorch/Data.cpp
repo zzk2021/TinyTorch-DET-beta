@@ -118,4 +118,102 @@ void DatasetMNIST::loadLabels(const std::string& path) {
   ifs.close();
 }
 
+
+std::vector<std::string> DatasetYOLO::readAnnotationFile(const std::string& path) {
+  std::ifstream ifs(path);
+  if (!ifs.is_open()) {
+    throw std::runtime_error("Failed to open annotation file: " + path);
+  }
+
+  std::vector<std::string> lines;
+  std::string line;
+  while (std::getline(ifs, line)) {
+    if (!line.empty()) {
+      lines.push_back(line);
+    }
+  }
+  return lines;
+}
+
+
+Tensor readImage(const std::string& image_path) {
+    std::ifstream ifs(image_path);
+    if (!ifs.is_open()) {
+        throw std::runtime_error("Failed to open image file: " + image_path);
+    }
+    std::vector<std::vector<float>> image_data;
+    std::string line;
+    while (std::getline(ifs, line)) {
+        std::istringstream iss(line);
+        std::vector<float> row;
+        float pixel_value;
+        while (iss >> pixel_value) {
+            row.push_back(pixel_value);
+        }
+        if (!row.empty()) {
+            image_data.push_back(row);
+        }
+    }
+
+    if (image_data.empty() || image_data[0].empty()) {
+        throw std::runtime_error("Invalid image data in file: " + image_path);
+    }
+
+    int height = image_data.size();
+    int width_times_channels = image_data[0].size();
+
+    int channels = 3;
+    int width = width_times_channels / channels;
+
+    std::vector<std::vector<std::vector<float>>> nested_data(channels,
+        std::vector<std::vector<float>>(height, std::vector<float>(width)));
+
+    for (int h = 0; h < height; ++h) {
+        for (int w = 0; w < width; ++w) {
+            for (int c = 0; c < channels; ++c) {
+                nested_data[c][h][w] = image_data[h][w * channels + c];
+            }
+        }
+    }
+    return Tensor(nested_data);
+}
+
+ std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
+  if (idx >= size_) {
+    throw std::out_of_range("Index out of range");
+  }
+  const std::string& line = annotation_lines_[idx];
+  std::istringstream iss(line);
+  std::string image_path;
+  iss >> image_path;
+  Tensor image = readImage(image_path);
+  if (transform_) {
+    image = transform_->process(image);
+  }
+  std::vector<std::vector<float>> labels;
+  std::string token;
+  while (iss >> token) {
+    std::istringstream token_iss(token);
+    std::string value;
+    std::vector<float> box;
+    while (std::getline(token_iss, value, ',')) {
+      box.push_back(std::stof(value));
+    }
+    if (box.size() == 5) { // x_center, y_center, width, height, class_id
+      labels.push_back(box);
+    }
+  }
+  return {image, Tensor(labels)}; // 假设 Tensor 可以接受 vector<vector<float>>
+}
+
+DatasetYOLO::DatasetYOLO(
+    const std::string& annotation_lines, YOLODataType type,
+    const std::shared_ptr<transforms::Transform>& transform)
+    : transform_(transform) {
+
+  size_ = std::min(images_.size(), labels_.size());
+}
+
 }  // namespace TinyTorch::data
+
+

@@ -8,6 +8,7 @@
 #include "Objectdetection/header.h"
 #include <memory>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "Loss.h"
@@ -25,6 +26,7 @@ enum FunctionType {
   Function_Pow,
   Function_PowScalar,
   Function_Sum,
+  Function_Mean,
   Function_Max,
   Function_Relu,
   Function_LeakyRelu,
@@ -33,6 +35,8 @@ enum FunctionType {
   Function_FlashAttention,
   Function_UpSample,
   Function_ConCat,
+  Function_Slice,
+  Function_Mask,
   Function_Attention,
   Function_Squeeze,
   Function_Unsqueeze,
@@ -44,7 +48,9 @@ enum FunctionType {
   Function_MaxPool2D,
   Function_Conv2D,
   Function_BatchNorm,
+  Function_LayerNorm,
   Function_MSELoss,
+  Function_BCELoss,
   Function_NLLLoss,
   // object detection support
   OBJDECT_EXPLORE_FUNCTIONTYPE()
@@ -57,6 +63,10 @@ class Function : public std::enable_shared_from_this<Function> {
  public:
   OBJDECT_EXPLORE_FUNCTION();
   static Tensor add(const Tensor& a, const Tensor& b);
+  static Tensor from_slice(const Tensor& a,
+                           const std::vector<int>& start,
+                           const std::vector<int>& end);
+  static Tensor from_mask(const Tensor& a, const Tensor& b);
   static Tensor concat(const Tensor& a, const Tensor& b, int32_t dim);
   static Tensor sub(const Tensor& a, const Tensor& b);
   static Tensor mul(const Tensor& a, const Tensor& b);
@@ -66,6 +76,7 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor pow(const Tensor& a, const float& b);
   static Tensor pow(const Tensor& a, const Tensor& b);
   static Tensor sum(const Tensor& a);
+  static Tensor mean(const Tensor& a);
   static Tensor max(const Tensor& a, int32_t dim_ ,bool keepdim);
   static Tensor relu(const Tensor& input);
   static Tensor leakyrelu(const Tensor& input, float rate);
@@ -75,24 +86,16 @@ class Function : public std::enable_shared_from_this<Function> {
                           const std::vector<int32_t>& sizes);
 
   static Tensor squeeze(const Tensor& input, int32_t dim = -1);
-
   static Tensor unsqueeze(const Tensor& input, int32_t dim);
-
   static Tensor reshape(const Tensor& input, const Shape& shape);
-
   static Tensor linear(const Tensor& input, const Tensor& weight,
                        const Tensor& bias);
-
   static Tensor flashattention(const Tensor& Q,const Tensor& K,
    const Tensor& V, int32_t head);
-
-  static Tensor dropout(const Tensor& input, float p = 0.5f,
-                        bool training = true);
-
+  static Tensor dropout(const Tensor& input, float p = 0.5f,bool training = true);
   static Tensor softmax(const Tensor& input, int32_t dim);
-
+  static Tensor sigmoid(const Tensor& input);
   static Tensor logSoftmax(const Tensor& input, int32_t dim);
-
   static Tensor maxPool2d(const Tensor& input, Size2D kernelSize,
                           std::optional<Size2D> stride = std::nullopt,
                           Size2D padding = 0);
@@ -100,6 +103,9 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor conv2d(const Tensor& input, const Tensor& weight,
                        const Tensor& bias = {}, Size2D stride = 1,
                        Size2D padding = 0);
+
+  static Tensor layerNorm(const Tensor& input, const Tensor& weight,
+                          const Tensor& bias, float eps = 1e-5);
 
   static Tensor batchNorm(const Tensor& input, Tensor& runningMean,
                           Tensor& runningVar, const Tensor& weight,
@@ -110,6 +116,9 @@ class Function : public std::enable_shared_from_this<Function> {
                         LossReduction reduction = MEAN);
 
   static Tensor mseLoss(const Tensor& input, const Tensor& target,
+                        LossReduction reduction = MEAN);
+
+  static Tensor bceLoss(const Tensor& input, const Tensor& target,
                         LossReduction reduction = MEAN);
 
   virtual ~Function() = default;
@@ -184,6 +193,23 @@ class FuncConCat : public Function {
   int32_t a_shape_;
 };
 
+class FuncSlice : public Function {
+ public:
+    FuncSlice(std::vector<int> start, std::vector<int> end)
+     : start_(std::move(start)), end_(std::move(end)){}
+  DEFINE_FUNCTION_MEMBERS(Function_Slice)
+ private:
+  std::vector<int> start_;
+  std::vector<int> end_;
+};
+
+class FuncMask : public Function {
+ public:
+  DEFINE_FUNCTION_MEMBERS(Function_Mask)
+ private:
+  TensorImpl indice_;
+};
+
 class FuncSub : public Function {
  public:
   DEFINE_FUNCTION_MEMBERS(Function_Sub)
@@ -224,6 +250,11 @@ class FuncPowScalar : public Function {
 };
 
 class FuncSum : public Function {
+ public:
+  DEFINE_FUNCTION_MEMBERS(Function_Sum)
+};
+
+class FuncMean : public Function {
  public:
   DEFINE_FUNCTION_MEMBERS(Function_Sum)
 };
@@ -345,6 +376,14 @@ class FuncSoftmax : public Function {
   TensorImpl forwardOutput_;
 };
 
+class FuncSigmoid : public Function {
+ public:
+  explicit FuncSigmoid()= default;
+  DEFINE_FUNCTION_MEMBERS(Function_Softmax)
+ private:
+  TensorImpl forwardOutput_;
+};
+
 class FuncLogSoftmax : public Function {
  public:
   explicit FuncLogSoftmax(int32_t dim) : dim_(dim) {}
@@ -380,6 +419,17 @@ class FuncConv2D : public Function {
   TensorImpl col_;
 };
 
+class FuncLayerNorm : public Function {
+ public:
+  explicit FuncLayerNorm(float eps = 1e-5)
+      : eps_(eps) {}
+  DEFINE_FUNCTION_MEMBERS(Function_LayerNorm)
+
+ private:
+  float eps_ = 1e-5;
+  std::vector<int32_t> viewShape_;
+};
+
 class FuncBatchNorm : public Function {
  public:
   explicit FuncBatchNorm(Tensor& runningMean, Tensor& runningVar,
@@ -409,6 +459,15 @@ class FuncMSELoss : public Function {
 
  private:
   LossReduction reduction_;
+};
+
+class FuncBCELoss : public Function {
+ public:
+  explicit FuncBCELoss(LossReduction reduction) : reduction_(reduction) {}
+  DEFINE_FUNCTION_MEMBERS(Function_BCELoss)
+ private:
+  LossReduction reduction_;
+  float eps_ = 1e-8;
 };
 
 class FuncNLLLoss : public Function {

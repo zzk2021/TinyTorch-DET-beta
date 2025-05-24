@@ -246,6 +246,48 @@ TEST(TEST_Function, func_mseLoss_mean) {
                         {0.382866651, 0.422966689, -0.0831, -0.825399935,
                          -0.523333311, -0.135533333});
 }
+TEST(TEST_Function, func_bceLoss_none) {
+  Tensor x({{0.2f, 0.7f, 0.5f},
+            {0.9f, 0.3f, 0.6f}}, true);
+  Tensor y({{0.0f, 1.0f, 0.0f},
+            {1.0f, 0.0f, 1.0f}}, true);
+  auto loss = Function::bceLoss(x, y, NONE);
+  std::vector<float> expected_loss = {
+      static_cast<float>(-std::log(1 - 0.2)),
+      static_cast<float>(-std::log(0.7)),
+      static_cast<float>(-std::log(1 - 0.5)),
+      static_cast<float>(-std::log(0.9)),
+      static_cast<float>(-std::log(1 - 0.3)),
+      static_cast<float>(-std::log(0.6))
+  };
+  EXPECT_FLOAT_VEC_NEAR(loss.data().toList(), expected_loss);
+  loss.backward(Tensor::onesLike(loss));
+  float eps = 1e-8;
+  std::vector<float> expected_x_grad = {
+    static_cast<float>((0.2 - 0.0f) / (0.2 * (1 - 0.2) + eps)),
+    static_cast<float>((0.7 - 1.0f) / (0.7 * (1 - 0.7) + eps)),
+    static_cast<float>((0.5 - 0.0f) / (0.5 * (1 - 0.5) + eps)),
+    static_cast<float>((0.9 - 1.0f) / (0.9 * (1 - 0.9) + eps)),
+    static_cast<float>((0.3 - 0.0f) / (0.3 * (1 - 0.3) + eps)),
+    static_cast<float>((0.6 - 1.0f) / (0.6 * (1 - 0.6) + eps))
+  };
+  std::vector<float> expected_y_grad = {
+    static_cast<float>(-(std::log(0.2) - std::log(1 - 0.2))),
+    static_cast<float>(-(std::log(0.7) - std::log(1 - 0.7))),
+    static_cast<float>(-(std::log(0.5) - std::log(1 - 0.5))),
+    static_cast<float>(-(std::log(0.9) - std::log(1 - 0.9))),
+    static_cast<float>(-(std::log(0.3) - std::log(1 - 0.3))),
+    static_cast<float>(-(std::log(0.6) - std::log(1 - 0.6)))
+  };
+
+  EXPECT_FLOAT_VEC_NEAR(
+      x.getGrad().data().toList(),
+      expected_x_grad);
+
+  EXPECT_FLOAT_VEC_NEAR(
+      y.getGrad().data().toList(),
+      expected_y_grad);
+}
 
 TEST(TEST_Function, func_mseLoss_sum) {
   Tensor x({{-0.3089f, 0.5301f, -0.0245f}, {1.5852f, 0.8954f, 0.7485f}}, true);

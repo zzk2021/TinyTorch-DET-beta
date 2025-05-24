@@ -32,6 +32,11 @@ if (${USE_CUDA})
     target_link_libraries(${PROJECT_NAME} ${CUDA_LIBRARIES} ${CUDA_curand_LIBRARY} ${CUDA_cublas_LIBRARY})
 endif ()
 
+if (${USE_OPENCV})
+    include_directories(${OpenCV_INCLUDE_DIRS})
+    target_link_libraries(${PROJECT_NAME} ${OpenCV_3RDPARTY_LIBS} ${OpenCV_LIBS})
+endif ()
+
 if (${USE_BLAS})
     add_definitions(-DUSE_BLAS)
     if (MSVC)

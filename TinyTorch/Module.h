@@ -26,6 +26,7 @@ class Module {
 
   virtual Tensor forward(Tensor &x) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2) { return {}; }
+  virtual Tensor forward(Tensor &x1, Array3d &x2) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2, Tensor &x3) { return {}; }
 
   virtual std::vector<Tensor> forward(Tensor &x1, bool many) { return {}; }
@@ -103,7 +104,7 @@ class Sequential : public Module {
   std::vector<Tensor *> states() override;
   void resetParameters() override;
   void zeroGrad() override;
-  int32_t getsize() {return modules_.size();};
+  size_t getsize() {return modules_.size();};
   Module &operator[](const int index) { return *modules_[index]; }
   Sequential operator[](const Slice& slice) const {
     if (slice.start < 0 || slice.start >= modules_.size()) {
@@ -124,15 +125,12 @@ class Sequential : public Module {
   }
  private:
   void setTraining(bool mode) override;
-
   template <typename First, typename Second, typename... Rest>
   void pushBack(First &&first, Second &&second, Rest &&...rest) {
     pushBack(std::forward<First>(first));
     pushBack(std::forward<Second>(second), std::forward<Rest>(rest)...);
   }
-
   void pushBack() {}
-
   std::vector<std::shared_ptr<Module>> modules_;
 };
 
@@ -238,6 +236,7 @@ class MaxPool2D : public Module {
   Size2D stride_;
   Size2D padding_;
 };
+
 
 class Conv2D : public Module {
  public:

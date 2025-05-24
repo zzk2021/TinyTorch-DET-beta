@@ -20,7 +20,6 @@ namespace TinyTorch {
 
 std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     FUNC_ENUM_TO_STRING(Function_Leaf),
-    FUNC_ENUM_TO_STRING(Function_Leaf),
     FUNC_ENUM_TO_STRING(Function_Add),
     FUNC_ENUM_TO_STRING(Function_Sub),
     FUNC_ENUM_TO_STRING(Function_Mul),
@@ -37,6 +36,7 @@ std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     FUNC_ENUM_TO_STRING(Function_FlashAttention),
     FUNC_ENUM_TO_STRING(Function_UpSample),
     FUNC_ENUM_TO_STRING(Function_ConCat),
+    FUNC_ENUM_TO_STRING(Function_Slice),
     FUNC_ENUM_TO_STRING(Function_Squeeze),
     FUNC_ENUM_TO_STRING(Function_Unsqueeze),
     FUNC_ENUM_TO_STRING(Function_Reshape),
@@ -61,6 +61,14 @@ Tensor Function::upsample(const Tensor& input, int32_t scale_factor) {
 
 Tensor Function::add(const Tensor& a, const Tensor& b) {
   return std::make_shared<FuncAdd>()->callForward({&a, &b});
+}
+
+Tensor Function::from_slice(const Tensor& a, const std::vector<int>& start, const std::vector<int>& end) {
+  return std::make_shared<FuncSlice>(start, end)->callForward({&a});
+}
+
+Tensor Function::from_mask(const Tensor& a, const Tensor& b) {
+  return std::make_shared<FuncMask>()->callForward({&a, &b});
 }
 
 Tensor Function::concat(const Tensor& a, const Tensor& b, int32_t dim) {
@@ -96,6 +104,10 @@ Tensor Function::pow(const Tensor& a, const Tensor& b) {
 }
 
 Tensor Function::sum(const Tensor& a) {
+  return std::make_shared<FuncSum>()->callForward({&a});
+}
+
+Tensor Function::mean(const Tensor& a) {
   return std::make_shared<FuncSum>()->callForward({&a});
 }
 
@@ -150,11 +162,13 @@ Tensor Function::softmax(const Tensor& input, int32_t dim) {
   return std::make_shared<FuncSoftmax>(dim)->callForward({&input});
 }
 
+Tensor Function::sigmoid(const Tensor& input) {
+  return std::make_shared<FuncSigmoid>()->callForward({&input});
+}
+
 Tensor Function::logSoftmax(const Tensor& input, int32_t dim) {
   return std::make_shared<FuncLogSoftmax>(dim)->callForward({&input});
 }
-
-
 
 Tensor Function::maxPool2d(const Tensor& input, Size2D kernelSize,
                            std::optional<Size2D> stride, Size2D padding) {
@@ -168,6 +182,11 @@ Tensor Function::conv2d(const Tensor& input, const Tensor& weight,
                         const Tensor& bias, Size2D stride, Size2D padding) {
   return std::make_shared<FuncConv2D>(stride, padding)
       ->callForward({&input, &weight, &bias});
+}
+
+Tensor Function::layerNorm(const Tensor& x, const Tensor& g, const Tensor& b, float eps) {
+  return std::make_shared<FuncLayerNorm>(eps)
+      ->callForward({&x, &g, &b});
 }
 
 Tensor Function::batchNorm(const Tensor& input, Tensor& runningMean,
@@ -184,6 +203,13 @@ Tensor Function::mseLoss(const Tensor& input, const Tensor& target,
   return std::make_shared<FuncMSELoss>(reduction)->callForward(
       {&input, &target});
 }
+
+Tensor Function::bceLoss(const Tensor& input, const Tensor& target,
+                         LossReduction reduction) {
+  return std::make_shared<FuncBCELoss>(reduction)->callForward(
+      {&input, &target});
+}
+
 
 Tensor Function::nllloss(const Tensor& input, const Tensor& target,
                          LossReduction reduction) {
@@ -342,13 +368,54 @@ std::vector<TensorImpl> FuncUpSample::backward(const TensorImpl& grad) {
   return ret;
 }
 
+TensorImpl FuncMask::forward(const std::vector<const Tensor*>& inputs) {
+    // notice! we could not save tensor b grad, tensor b for mask can't backpropagation
+    const Tensor& a = *inputs[0];
+    const Tensor& b = *inputs[1];
+    if (b.isRequiresGrad()){
+        throw  std::runtime_error("the mask must be no Grad");
+    }
+    saveForBackward({&a});
+    auto ret = a.data().ops()->from_mask(a.data(), b.data());
+    indice_ = ret.second;
+    return ret.first;
+}
+
+std::vector<TensorImpl> FuncMask::backward(const TensorImpl& grad) {
+    const auto& savedTensors = getSavedTensors();
+    std::vector<TensorImpl> ret;
+    if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
+        const Tensor t1 = savedTensors[0];
+        auto grad_output = grad.ops()->from_mask_backward(grad, indice_, t1.shape());
+        ret.push_back(grad_output);
+    }
+    return ret;
+}
+
+TensorImpl FuncSlice::forward(const std::vector<const Tensor*>& inputs) {
+    saveForBackward(inputs);
+    const Tensor& t = *inputs[0];
+    const auto& shape = t.data().shape();
+    return t.data().ops()->from_slice(t.data(), start_, end_);
+}
+
+std::vector<TensorImpl> FuncSlice::backward(const TensorImpl& grad) {
+    const auto& savedTensors = getSavedTensors();
+    std::vector<TensorImpl> ret;
+    if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
+        const Tensor t1 = savedTensors[0];
+        const TensorImpl grad_input = TensorImpl::zerosLike(t1.data(), grad.device());
+        grad_input.ops()->from_slice_backward(const_cast<TensorImpl &>(grad_input), grad, start_, end_);
+        ret.push_back(grad_input);
+    }
+    return ret;
+}
+
 TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {
     saveForBackward(inputs);
-
     if (inputs.size() != 2) {
         throw std::invalid_argument("ConCat requires exactly 2 input tensors");
     }
-
     const Tensor& t1 = *inputs[0];
     const Tensor& t2 = *inputs[1];
     const auto& shape1 = t1.data().shape();
@@ -648,6 +715,22 @@ std::vector<TensorImpl> FuncMax::backward(const TensorImpl& grad) {
   return ret;
 }
 
+TensorImpl FuncMean::forward(const std::vector<const Tensor*>& inputs) {
+  saveForBackward(inputs);
+  return TensorImpl::sum(inputs[0]->data()) / (float)inputs[0]->numel();
+}
+
+std::vector<TensorImpl> FuncMean::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  std::vector<TensorImpl> ret;
+  auto& input = savedTensors[0];
+  if (input.isRequiresGrad()) {
+    ret.push_back(grad * TensorImpl::onesLike(input.data(), input.device(),
+                                              input.type()) * 1 / (float)input.numel());
+  }
+  return ret;
+}
+
 TensorImpl FuncSum::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   return TensorImpl::sum(inputs[0]->data());
@@ -658,7 +741,7 @@ std::vector<TensorImpl> FuncSum::backward(const TensorImpl& grad) {
   std::vector<TensorImpl> ret;
   auto& input = savedTensors[0];
   if (input.isRequiresGrad()) {
-    ret.push_back(grad * TensorImpl::onesLike(input.data(), input.device()));
+    ret.push_back(grad * TensorImpl::onesLike(input.data(), input.device(), input.type()));
   }
   return ret;
 }
@@ -836,6 +919,22 @@ TensorImpl FuncSoftmax::forward(const std::vector<const Tensor*>& inputs) {
   return forwardOutput_;
 }
 
+TensorImpl FuncSigmoid::forward(const std::vector<const Tensor*>& inputs) {
+  saveForBackward(inputs);
+  forwardOutput_ = 1 / (1 + 1 / inputs[0]->data().ops()->exp(inputs[0]->data()));
+  return forwardOutput_;
+}
+
+std::vector<TensorImpl> FuncSigmoid::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  std::vector<TensorImpl> ret;
+  if (savedTensors[0].isRequiresGrad()) {
+    auto retGrad = grad * forwardOutput_ * (1- forwardOutput_);
+    ret.push_back(std::move(retGrad));
+  }
+  return ret;
+}
+
 std::vector<TensorImpl> FuncSoftmax::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
@@ -976,6 +1075,44 @@ std::vector<TensorImpl> FuncConv2D::backward(const TensorImpl& grad) {
   return ret;
 }
 
+TensorImpl FuncLayerNorm::forward(const std::vector<const Tensor*>& inputs) {
+  auto& input = inputs[0]->data();
+  auto& weight = inputs[1]->data();
+  auto& bias = inputs[2]->data();
+
+  auto& shape = input.shape();
+  assert(shape.size() == 3);
+  viewShape_ = {1, 1, shape[2]};
+  Tensor mean;
+  Tensor var;
+  Tensor inputNorm;
+  mean.data() = TensorImpl::mean(input, -1, true);
+  var.data() = TensorImpl::var(input, -1, false, true);
+  saveForBackward({inputs[0], &mean, &var});
+  inputNorm.data() = (input - mean.data()) / TensorImpl::sqrt(var.data() + eps_);
+  if (!weight.empty()) {
+    inputNorm.data() *= weight.view(viewShape_);
+  }
+  if (!bias.empty()) {
+    inputNorm.data() += bias.view(viewShape_);
+  }
+  return inputNorm.data();
+}
+
+std::vector<TensorImpl> FuncLayerNorm::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  auto& input = savedTensors[0].data();
+  auto& weight = savedTensors[1].data();
+  auto& inputNorm = savedTensors[3].data();
+  auto& inputCentered = savedTensors[4].data();
+  auto& std = savedTensors[5].data();
+
+  std::vector<TensorImpl> ret;
+
+  return ret;
+}
+
+
 TensorImpl FuncBatchNorm::forward(const std::vector<const Tensor*>& inputs) {
   auto& input = inputs[0]->data();
   auto& weight = inputs[1]->data();
@@ -1069,6 +1206,46 @@ std::vector<TensorImpl> FuncBatchNorm::backward(const TensorImpl& grad) {
   if (savedTensors[2].isRequiresGrad()) {
     auto dBias = grad.sum(dims_);
     ret.push_back(std::move(dBias));
+  }
+  return ret;
+}
+
+
+TensorImpl FuncBCELoss::forward(const std::vector<const Tensor*>& inputs) {
+  saveForBackward(inputs);
+  auto ret = 0 - (inputs[1]->data() * TensorImpl::log(inputs[0]->data().clamp(eps_, 1 - eps_)) +
+          (1.0f - inputs[1]->data()) * TensorImpl::log((1.0f - inputs[0]->data()).clamp(eps_, 1 - eps_)));
+  switch (reduction_) {
+    case MEAN:
+      return ret.mean();
+    case SUM:
+      return ret.sum();
+    default:
+      break;
+  }
+  return ret;
+}
+
+std::vector<TensorImpl> FuncBCELoss::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  auto local_grad = (savedTensors[0].data() - savedTensors[1].data())
+          / (savedTensors[0].data() * (1.0f - savedTensors[0].data()) + eps_);
+  auto retGrad = grad * local_grad;
+  switch (reduction_) {
+    case MEAN:
+      retGrad /= (float)savedTensors[0].numel();
+    default:
+      break;
+  }
+  std::vector<TensorImpl> ret;
+  if (savedTensors[0].isRequiresGrad()) {
+    ret.push_back(retGrad);
+  }
+  if (savedTensors[1].isRequiresGrad()) {
+    auto log_y_pred = TensorImpl::log(savedTensors[0].data().clamp(eps_, 1 - eps_));
+    auto log_one_minus_y_pred = TensorImpl::log((1.0f - savedTensors[0].data()).clamp(eps_, 1 - eps_));
+    auto target_grad = 0 - (log_y_pred - log_one_minus_y_pred);
+    ret.push_back(grad * target_grad);
   }
   return ret;
 }

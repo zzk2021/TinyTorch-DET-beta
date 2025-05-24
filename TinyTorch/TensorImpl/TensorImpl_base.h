@@ -50,6 +50,7 @@ typedef std::vector<float> Array1d;
 typedef std::vector<std::vector<float>> Array2d;
 typedef std::vector<std::vector<std::vector<float>>> Array3d;
 typedef std::vector<std::vector<std::vector<std::vector<float>>>> Array4d;
+typedef std::vector<std::vector<std::vector<std::vector<std::vector<float>>>>> Array5d;
 
 typedef enum TensorError_ {
   TensorError_None = 0,
@@ -89,6 +90,13 @@ typedef enum ShapeCompatible_ {
   _H void fillRandBernoulli_(TensorImpl& t, float p) _T;                       \
                                                                                \
   /* math */                                                                   \
+  _H TensorImpl from_slice(const TensorImpl& a, std::vector<int> starts,       \
+  std::vector<int> ends) _T;                                                   \
+  _H std::pair<TensorImpl, TensorImpl> from_mask(const TensorImpl& a,\
+  const TensorImpl& b) _T;                                                     \
+  _H TensorImpl from_mask_backward(const                                       \
+  TensorImpl& grad_output,const TensorImpl& indices, const           \
+  std::vector<int32_t>& a_shape) _T;                                           \
   _H TensorImpl add(const TensorImpl& a, const TensorImpl& b) _T;              \
   _H TensorImpl sub(const TensorImpl& a, const TensorImpl& b) _T;              \
   _H TensorImpl mul(const TensorImpl& a, const TensorImpl& b) _T;              \
@@ -220,11 +228,12 @@ typedef enum ShapeCompatible_ {
   const TensorImpl& b, int32_t dim_) _T;                                       \
   _H std::vector<TensorImpl> concat_backward(const TensorImpl& a,              \
   int32_t dim_,int32_t a_dim_shape) _T;                                        \
-  _H TensorImpl leakyrelu(const TensorImpl& t, float rate) _T;                  \
+  _H TensorImpl leakyrelu(const TensorImpl& t, float rate) _T;                 \
   _H void gemm(float* c, const float* a, const float* b, int32_t m,            \
   int32_t k, int32_t n, bool transA, bool transBk,                             \
   Dtype Ta = Dtype::float32, Dtype Tc = Dtype::float32) _T;                    \
-
+  _H void from_slice_backward(TensorImpl& ret, const TensorImpl& b,            \
+       std::vector<int> starts, std::vector<int> ends) _T;
 
 class TensorImpl;
 

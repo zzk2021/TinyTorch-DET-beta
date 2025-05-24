@@ -6,6 +6,8 @@
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
+#include <thrust/device_ptr.h>
+#include <thrust/scan.h>
 
 #if CUDA_VERSION >= 12010
 #include <cuda_fp8.h>
@@ -584,8 +586,19 @@ void TensorOpsCUDA::fillConstant_(float* dst, float val, size_t count) {
   CUDA_KERNEL_CHECK();
 }
 
+
 void TensorOpsCUDA::fillConstant_(TensorImpl& t, float val) {
-  kFillConstant<<<getGridSize(t.elemCount_, 4), getBlockSize()>>>(t.data_, val,
+
+  if(t.type_ == Dtype::float16)
+    kFillConstant<<<getGridSize(t.elemCount_, 4), getBlockSize()>>>(reinterpret_cast<half*>(t.data_),
+                                                                    __float2half(val),
+                                                                  t.elemCount_);
+  else if (t.type_ == Dtype::bfloat16)
+    kFillConstant<<<getGridSize(t.elemCount_, 4), getBlockSize()>>>(reinterpret_cast<__nv_bfloat16*>(t.data_),
+                                                                    __float2bfloat16(val),
+                                                                  t.elemCount_);
+  else
+    kFillConstant<<<getGridSize(t.elemCount_, 4), getBlockSize()>>>(t.data_, val,
                                                                   t.elemCount_);
   CUDA_KERNEL_CHECK();
 }
@@ -1062,7 +1075,7 @@ TensorImpl TensorOpsCUDA::sum(const TensorImpl& t,
   }
 
   auto retShape = getReduceShape(t, inAxis, keepDims);
-  auto ret = TensorImpl::shape(retShape, t.device_);
+  auto ret = TensorImpl::shape(retShape, t.device_, t.type_);
 
   if (dims.size() == 1) {
     auto d = dims[0];
@@ -1103,7 +1116,6 @@ TensorImpl TensorOpsCUDA::sum(const TensorImpl& t,
                     tmp.data_,
                     dimSize,
                     ret.elemCount_);
-
       return ret;
     }
 
@@ -1129,10 +1141,11 @@ TensorImpl TensorOpsCUDA::sum(const TensorImpl& t,
     }
   }
 
-  auto ctxT = getTensorCtx(t);
-  fillConstant_(ret, 0);
-  kReduceSum<<<getGridSize(t.elemCount_), getBlockSize()>>>(
-      ret.data_, ctxT, inAxis, t.elemCount_);
+    auto ctxT = getTensorCtx(t);
+    fillConstant_(ret, 0);
+    kReduceSum<<<getGridSize(t.elemCount_), getBlockSize()>>>(
+    ret.data_, ctxT, inAxis, t.elemCount_);
+
   CUDA_KERNEL_CHECK();
   return ret;
 }
@@ -1202,6 +1215,7 @@ TensorImpl TensorOpsCUDA::permute(const TensorImpl& t,
   CUDA_KERNEL_CHECK();
   return ret;
 }
+
 
 
 TensorImpl TensorOpsCUDA::transpose2D(const TensorImpl& t) {
@@ -1514,6 +1528,245 @@ TensorImpl TensorOpsCUDA::leakyrelu(const TensorImpl& a, float rate){
   return ret;
 }
 
+std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, const TensorImpl& b) {
+    int32_t ndim = a.shape_.size();
+    int numElements = a.numel();
+    int* d_prefixSum;
+    allocate(reinterpret_cast<void**>(&d_prefixSum), numElements * sizeof(int));
+    const int blockSize = 256;
+    int gridSize = (numElements + blockSize - 1) / blockSize;
+
+    computePrefixSumKernel<<<gridSize, blockSize>>>(b.data(), d_prefixSum, numElements);
+    thrust::device_ptr<int> thrust_prefixSum(d_prefixSum);
+    thrust::inclusive_scan(thrust_prefixSum, thrust_prefixSum + numElements, thrust_prefixSum);
+
+    int totalValid;
+    float *indice;
+    copyDeviceToHost(&totalValid, d_prefixSum + numElements - 1, sizeof(int));
+    allocate(reinterpret_cast<void**>(&indice), totalValid * sizeof(float));
+    std::vector<float> indices_host;
+    indices_host.resize(totalValid);
+
+    TensorImpl ret = TensorImpl::shape({totalValid}, a.device(), a.type());
+
+    gatherElementsKernel<<<gridSize, blockSize>>>(a.data(), d_prefixSum, indice, ret.data(), numElements);
+    //scatterElementsKernel<<<gridSize, blockSize>>>(d_input, d_prefixSum, ret.data(), numElements);
+    copyDeviceToHost(indices_host.data(), indice, totalValid * sizeof(float));
+
+    deallocate(d_prefixSum);
+    deallocate(indice);
+    cudaDeviceSynchronize();  // ⚠️ 强制同步
+    // Step 5: Check for kernel errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err));
+    }
+
+    TensorImpl indices_t =  TensorImpl(indices_host,a.device());
+
+    return {ret, indices_t};
+}
+
+
+TensorImpl TensorOpsCUDA::from_mask_backward(
+    const TensorImpl& grad_output,
+    const TensorImpl& indices,
+    const std::vector<int32_t>& a_shape
+) {
+    TensorImpl grad_input = TensorImpl::zeros(a_shape, grad_output.device_, grad_output.type_);
+
+    int totalValid = indices.numel();
+    const int blockSize = 256;
+    int gridSize = (totalValid + blockSize - 1) / blockSize;
+    scatterGradKernel<<<gridSize, blockSize>>>(
+        grad_output.data(),
+        indices.data_,
+        grad_input.data(),
+        totalValid
+    );
+
+    cudaDeviceSynchronize();
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err));
+    }
+
+    return grad_input;
+}
+
+TensorImpl TensorOpsCUDA::from_slice(const TensorImpl& a, std::vector<int> starts, std::vector<int> ends) {
+    int32_t ndim = a.shape_.size();
+
+    // Step 1: Compute new shape
+    std::vector<int> new_shape(ndim);
+
+    for (int i = 0; i < ndim; ++i) {
+        new_shape[i] = ends[i] - starts[i];
+    }
+
+    // Step 2: Create new tensor
+    TensorImpl result = TensorImpl::shape(new_shape, a.device_);
+    int new_size = result.numel();
+    // Step 4: Launch kernel
+    int threads_per_block = 256;
+    int blocks = (new_size + threads_per_block - 1) / threads_per_block;
+
+    int32_t *d_a_strides, *d_new_strides, *d_new_shape;
+    int *d_starts;
+    allocate(reinterpret_cast<void**>(&d_a_strides), ndim * sizeof(int32_t));
+    allocate(reinterpret_cast<void**>(&d_starts), ndim * sizeof(int));
+    allocate(reinterpret_cast<void**>(&d_new_strides), ndim * sizeof(int32_t));
+    allocate(reinterpret_cast<void**>(&d_new_shape), ndim * sizeof(int32_t));
+
+    copyHostToDevice(d_a_strides, a.strides_.data(), ndim * sizeof(int32_t));
+    copyHostToDevice(d_starts, starts.data(), ndim * sizeof(int));
+    copyHostToDevice(d_new_strides, result.strides_.data(), ndim * sizeof(int32_t));
+    copyHostToDevice(d_new_shape, result.shape().data(), ndim * sizeof(int32_t));
+
+    switch (ndim) {
+        case 4:
+            from_slice_kernel<4><<<blocks, threads_per_block>>>(
+                    a.data_,                                    // a_data
+                    d_a_strides,                          // a_strides
+                    d_starts,                              // starts
+                    d_new_strides,                     // new_strides
+                    d_new_shape,                      // new_dim
+                    result.data_,                               // result_data
+                    new_size                                  // total_elements
+                );
+            break;
+        case 5:
+            from_slice_kernel<5><<<blocks, threads_per_block>>>(
+                    a.data_,                                    // a_data
+                    d_a_strides,                          // a_strides
+                    d_starts,                              // starts
+                    d_new_strides,                     // new_strides
+                    d_new_shape,                      // new_dim
+                    result.data_,                               // result_data
+                    new_size                                  // total_elements
+                );
+            break;
+        case 2:
+          from_slice_kernel<2><<<blocks, threads_per_block>>>(
+              a.data_,                                    // a_data
+              d_a_strides,                          // a_strides
+              d_starts,                              // starts
+              d_new_strides,                     // new_strides
+              d_new_shape,                      // new_dim
+              result.data_,                               // result_data
+              new_size                                  // total_elements
+          );
+          break;
+        case 1:
+          from_slice_kernel<1><<<blocks, threads_per_block>>>(
+              a.data_,                                    // a_data
+              d_a_strides,                          // a_strides
+              d_starts,                              // starts
+              d_new_strides,                     // new_strides
+              d_new_shape,                      // new_dim
+              result.data_,                               // result_data
+              new_size                                  // total_elements
+          );
+          break;
+        default:
+            throw std::invalid_argument("Unsupported number of dimensions");
+    }
+    deallocate(d_a_strides);
+    deallocate(d_starts);
+    deallocate(d_new_strides);
+    deallocate(d_new_shape);
+
+    cudaDeviceSynchronize();  // ⚠️ 强制同步
+    // Step 5: Check for kernel errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err));
+    }
+    return result;
+}
+
+void TensorOpsCUDA::from_slice_backward(TensorImpl& ret, const TensorImpl& b,
+                                              std::vector<int> starts, std::vector<int> ends) {
+    int new_size = b.numel();
+    int ndim = ret.shape().size();
+    // Step 4: Launch kernel
+    int threads_per_block = 256;
+    int blocks = (new_size + threads_per_block - 1) / threads_per_block;
+    int32_t *d_a_strides, *d_new_strides, *d_new_shape;
+    int *d_starts;
+
+    allocate(reinterpret_cast<void**>(&d_a_strides), ndim * sizeof(int32_t));
+    allocate(reinterpret_cast<void**>(&d_starts), ndim * sizeof(int));
+    allocate(reinterpret_cast<void**>(&d_new_strides), ndim * sizeof(int32_t));
+    allocate(reinterpret_cast<void**>(&d_new_shape), ndim * sizeof(int32_t));
+
+    copyHostToDevice(d_a_strides, ret.strides_.data(), ndim * sizeof(int32_t));
+    copyHostToDevice(d_starts, starts.data(), ndim * sizeof(int));
+    copyHostToDevice(d_new_strides, b.strides_.data(), ndim * sizeof(int32_t));
+    copyHostToDevice(d_new_shape, b.shape().data(), ndim * sizeof(int32_t));
+
+    switch (ndim) {
+        case 4:
+            from_slice_kernel_backward<4><<<blocks, threads_per_block>>>(
+                ret.data_,                                    // a_data
+                d_a_strides,                          // a_strides
+                d_starts,                              // starts
+                d_new_strides,                     // new_strides
+                d_new_shape,                      // new_dim
+                b.data_,                               // result_data
+                new_size                                  // total_elements
+            );
+            break;
+        case 5:
+            from_slice_kernel_backward<5><<<blocks, threads_per_block>>>(
+                ret.data_,                                    // a_data
+                d_a_strides,                          // a_strides
+                d_starts,                              // starts
+                d_new_strides,                     // new_strides
+                d_new_shape,                      // new_dim
+                b.data_,                               // result_data
+                new_size                                  // total_elements
+            );
+            break;
+        case 2:
+          from_slice_kernel_backward<2><<<blocks, threads_per_block>>>(
+              ret.data_,                                    // a_data
+              d_a_strides,                          // a_strides
+              d_starts,                              // starts
+              d_new_strides,                     // new_strides
+              d_new_shape,                      // new_dim
+              b.data_,                               // result_data
+              new_size                                  // total_elements
+          );
+          break;
+        case 1:
+         from_slice_kernel_backward<1><<<blocks, threads_per_block>>>(
+              ret.data_,                                    // a_data
+              d_a_strides,                          // a_strides
+              d_starts,                              // starts
+              d_new_strides,                     // new_strides
+              d_new_shape,                      // new_dim
+              b.data_,                               // result_data
+              new_size                                  // total_elements
+          );
+          break;
+        default:
+            throw std::invalid_argument("Unsupported number of dimensions");
+    }
+    deallocate(d_a_strides);
+    deallocate(d_starts);
+    deallocate(d_new_strides);
+    deallocate(d_new_shape);
+
+    cudaDeviceSynchronize();  // ⚠️ 强制同步
+    // Step 5: Check for kernel errors
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err));
+    }
+
+}
+
 TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim){
   Shape a_shape = a.shape();
   Shape b_shape = b.shape();
@@ -1548,6 +1801,7 @@ TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int3
             cudaMemcpyDeviceToDevice
         );
     }
+
      return ret;
   }
   if (dim == 1 && a_shape.size() == 4) {
@@ -1567,6 +1821,41 @@ TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int3
     cudaStreamDestroy(stream);
     return ret;
   }
+  if (dim == 2 && a_shape.size() == 4) {
+    cudaStream_t stream;
+    cudaStreamCreate(&stream);
+    size_t N = a_shape[0];
+    size_t C = a_shape[1];
+    size_t H_a = a_shape[2];
+    size_t W = a_shape[3];
+    size_t H_b = b_shape[2];
+    for (size_t i = 0; i < N; ++i) {
+        for (size_t c = 0; c < C; ++c) {
+            const type* a_src = reinterpret_cast<const type*>(a.data_) +
+                i * a.strides_[0] + c * a.strides_[1];
+            const type* b_src = reinterpret_cast<const type*>(b.data_) +
+                i * b.strides_[0] + c * b.strides_[1];
+            type* ret_dst = reinterpret_cast<type*>(ret.data()) +
+                i * ret.strides_[0] + c * ret.strides_[1];
+            cudaMemcpyAsync(
+                ret_dst,
+                a_src,
+                H_a * W * sizeof(type),
+                cudaMemcpyDeviceToDevice
+            );
+            cudaMemcpyAsync(
+                ret_dst + H_a * W,
+                b_src,
+                H_b * W * sizeof(type),
+                cudaMemcpyDeviceToDevice
+            );
+        }
+    }
+
+    cudaStreamSynchronize(stream);
+    cudaStreamDestroy(stream);
+    return ret;
+    }
   else{
      throw std::invalid_argument("Unsupported dim, we only support last dim concat");
   }
@@ -1611,11 +1900,6 @@ std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, i
     }
     }
   else if (dim == 1 && grad_shape.size() == 4) {
-
-      cudaStream_t stream;
-     cudaStreamCreate(&stream);
-
-
    const int64_t total_elements = grad.numel();
     const int64_t N = grad_shape[0];
     const int64_t a_block_size = ret0.strides_[0];
@@ -1638,11 +1922,9 @@ std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, i
           cudaMemcpyDeviceToDevice
       );
     }
-    cudaStreamSynchronize(stream);
-
   }
   else{
-      throw std::invalid_argument("Unsupported dim, we only support last dim concat");
+      throw std::invalid_argument("Unsupported dim, we only support last dim concat and dim == 1 in NCHW dim");
   }
   return {ret0, ret1};
 }

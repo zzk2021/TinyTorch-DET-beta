@@ -4,10 +4,30 @@
  *
  */
 
+#ifdef USE_OPENCV
+#include <opencv2/opencv.hpp>
+#endif
+
 #include "Torch.h"
 #include "test.h"
 
+
+
 using namespace TinyTorch;
+
+
+#ifdef USE_OPENCV
+TEST(TEST_TensorImpl, opencv_to_tensor) {
+    cv::Mat image = cv::imread("E:\\C_project\\TinyTorch-official\\TinyTorch-main\\doc\\ChatGPT_LOGO_512.png", cv::IMREAD_COLOR);
+    cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+    auto a = TensorImpl(image);
+    auto vec = a.toList();
+
+    EXPECT_TRUE(!vec.empty()) << "Vector is empty, but contents are: "
+                                  << ::testing::PrintToString(vec);
+}
+#endif
+
 
 TEST(TEST_TensorImpl, constructor_default) {
   TensorImpl x;

@@ -10,7 +10,7 @@
 
 #include "Torch.h"
 #include "test.h"
-
+#include <filesystem>
 
 
 using namespace TinyTorch;
@@ -18,10 +18,11 @@ using namespace TinyTorch;
 
 #ifdef USE_OPENCV
 TEST(TEST_TensorImpl, opencv_to_tensor) {
-    cv::Mat image = cv::imread("E:\\C_project\\TinyTorch-official\\TinyTorch-main\\doc\\ChatGPT_LOGO_512.png", cv::IMREAD_COLOR);
+    cv::Mat image = cv::imread("../../doc/ChatGPT_LOGO_512.png", cv::IMREAD_COLOR);
     cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
     auto a = TensorImpl(image);
-    auto vec = a.toList();
+    auto b = Tensor(std::move(a));
+    auto vec = b.data().toList();
 
     EXPECT_TRUE(!vec.empty()) << "Vector is empty, but contents are: "
                                   << ::testing::PrintToString(vec);

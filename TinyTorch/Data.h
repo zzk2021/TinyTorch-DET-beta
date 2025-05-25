@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <numeric>
+#include <utility>
 #include <vector>
 
 #include "Tensor.h"
@@ -21,6 +22,10 @@ class Transform {
  public:
   virtual ~Transform() = default;
   virtual Tensor process(Tensor& input) const { return input; }
+
+  #ifdef USE_OPENCV
+  virtual Tensor process(cv::Mat& input) const { return Tensor(std::move(TensorImpl(input)));}
+  #endif
 };
 
 class Compose : public Transform {
@@ -56,6 +61,14 @@ class Compose : public Transform {
     return ret;
   }
 
+  Tensor process(cv::Mat& input) const override {
+    Tensor ret;
+    for (auto& trans : transforms_) {
+      ret = trans->process(input);
+    }
+    return ret;
+  }
+
  private:
   template <typename First, typename Second, typename... Rest>
   void pushBack(First&& first, Second&& second, Rest&&... rest) {
@@ -76,6 +89,19 @@ class Normalize : public Transform {
  private:
   float mean_;
   float std_;
+};
+
+class Resize : public Transform {
+ public:
+  Resize(Shape shape)
+      : shape_(std::move(shape)){}
+
+  #ifdef USE_OPENCV
+  Tensor process(cv::Mat& image) const override;
+  #endif
+
+ private:
+  Shape shape_;
 };
 
 }  // namespace transforms
@@ -121,20 +147,21 @@ class DatasetYOLO : public Dataset {
     TRAIN,
     TEST,
   };
-  DatasetYOLO(const std::string& annotation_file, YOLODataType type,
+  DatasetYOLO(const std::string& annotation_path, YOLODataType type,
                const std::shared_ptr<transforms::Transform>& transform);
-
   size_t size() const override { return size_; }
   std::vector<Tensor> getItem(size_t idx) override;
+  int32_t getNumClass() const { return num_classes_; }
  private:
   std::vector<std::vector<float>> images_;
   std::vector<float> labels_;
+  int32_t max_targets_;
   int32_t height_ = 0;
   int32_t width_ = 0;
   size_t size_ = 0;
+  int32_t num_classes_;
   std::vector<std::string> annotation_lines_;
   std::shared_ptr<transforms::Transform> transform_;
-  std::vector<std::string> readAnnotationFile(const std::string& path);
 };
 
 class DataLoader {

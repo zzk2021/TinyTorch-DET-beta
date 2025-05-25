@@ -32,16 +32,6 @@ Tensor::Tensor(const Array3d &values3d, bool requiresGrad)
   initAutograd(requiresGrad);
 }
 
-#ifdef USE_OPENCV
-template <typename T, typename>
-Tensor::Tensor(T&& mat, bool requiresGrad)
-    : data_(std::make_shared<TensorImpl>(std::forward<T>(mat))){
-        static_assert(std::is_same_v<std::decay_t<T>, cv::Mat>,
-                     "Must construct from cv::Mat");
-        initAutograd(requiresGrad);
-}
-#endif
-
 Tensor::Tensor(const Array4d &values4d, bool requiresGrad)
     : data_(std::make_shared<TensorImpl>(values4d)) {
   initAutograd(requiresGrad);

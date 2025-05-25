@@ -26,7 +26,6 @@ class Module {
 
   virtual Tensor forward(Tensor &x) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2) { return {}; }
-  virtual Tensor forward(Tensor &x1, Array3d &x2) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2, Tensor &x3) { return {}; }
 
   virtual std::vector<Tensor> forward(Tensor &x1, bool many) { return {}; }

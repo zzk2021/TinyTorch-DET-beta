@@ -40,11 +40,6 @@ class Tensor {
   explicit Tensor(const Array5d &values5d, bool requiresGrad = false);
 
 
-    #ifdef USE_OPENCV
-    template <typename T, typename = std::enable_if_t<
-        std::is_same_v<std::decay_t<T>, cv::Mat>>>
-    explicit Tensor(T&& mat, bool requiresGrad = false);
-    #endif
 
   static Tensor shape(const Shape &shape, bool requiresGrad = false);
   static Tensor scalar(const float &value, bool requiresGrad = false);

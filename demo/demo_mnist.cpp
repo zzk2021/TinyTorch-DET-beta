@@ -25,9 +25,6 @@ class Net : public nn::Module {
     x = dropout2(x);
     x = fc2(x);
     x = Function::logSoftmax(x, 1);
-
-
-
     return x;
   }
 

@@ -11,6 +11,8 @@
 
 #include "Logger.h"
 
+
+
 namespace TinyTorch::data::transforms {
 
 Tensor Normalize::process(Tensor& input) const {
@@ -19,6 +21,13 @@ Tensor Normalize::process(Tensor& input) const {
   auto& dst = ret.data();
   dst = (src - mean_) / std_;
   return ret;
+}
+
+Tensor Resize::process(cv::Mat& image) const {
+  cv::Mat resized_image;
+  cv::resize(image, resized_image, cv::Size(shape_[0],
+       shape_[1]), 0, 0, cv::INTER_LINEAR);
+  return Tensor(std::move(TensorImpl(resized_image)));
 }
 
 }  // namespace TinyTorch::data::transforms
@@ -102,7 +111,6 @@ void DatasetMNIST::loadLabels(const std::string& path) {
     return;
   }
   char p[4];
-
   ifs.read(p, 4);
   auto magicNumber = toInt32(p);
   assert(magicNumber == 0x801);
@@ -118,67 +126,22 @@ void DatasetMNIST::loadLabels(const std::string& path) {
   ifs.close();
 }
 
-
-std::vector<std::string> DatasetYOLO::readAnnotationFile(const std::string& path) {
-  std::ifstream ifs(path);
-  if (!ifs.is_open()) {
-    throw std::runtime_error("Failed to open annotation file: " + path);
-  }
-
-  std::vector<std::string> lines;
-  std::string line;
-  while (std::getline(ifs, line)) {
-    if (!line.empty()) {
-      lines.push_back(line);
-    }
-  }
-  return lines;
+cv::Mat readImage(const std::string& image_path) {
+    #ifdef USE_OPENCV
+      cv::Mat image = cv::imread(image_path, cv::IMREAD_COLOR);
+      if (image.empty()) {
+        throw std::runtime_error("Failed to open image file: "
+                                 + image_path);
+      }
+      cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+      return image;
+    #else
+      throw std::out_of_range("We only use opencv to read image, "
+      "please install opencv");
+    #endif
 }
 
-
-Tensor readImage(const std::string& image_path) {
-    std::ifstream ifs(image_path);
-    if (!ifs.is_open()) {
-        throw std::runtime_error("Failed to open image file: " + image_path);
-    }
-    std::vector<std::vector<float>> image_data;
-    std::string line;
-    while (std::getline(ifs, line)) {
-        std::istringstream iss(line);
-        std::vector<float> row;
-        float pixel_value;
-        while (iss >> pixel_value) {
-            row.push_back(pixel_value);
-        }
-        if (!row.empty()) {
-            image_data.push_back(row);
-        }
-    }
-
-    if (image_data.empty() || image_data[0].empty()) {
-        throw std::runtime_error("Invalid image data in file: " + image_path);
-    }
-
-    int height = image_data.size();
-    int width_times_channels = image_data[0].size();
-
-    int channels = 3;
-    int width = width_times_channels / channels;
-
-    std::vector<std::vector<std::vector<float>>> nested_data(channels,
-        std::vector<std::vector<float>>(height, std::vector<float>(width)));
-
-    for (int h = 0; h < height; ++h) {
-        for (int w = 0; w < width; ++w) {
-            for (int c = 0; c < channels; ++c) {
-                nested_data[c][h][w] = image_data[h][w * channels + c];
-            }
-        }
-    }
-    return Tensor(nested_data);
-}
-
- std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
+std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
   if (idx >= size_) {
     throw std::out_of_range("Index out of range");
   }
@@ -186,10 +149,23 @@ Tensor readImage(const std::string& image_path) {
   std::istringstream iss(line);
   std::string image_path;
   iss >> image_path;
-  Tensor image = readImage(image_path);
+  cv::Mat original_image = readImage(image_path);
+  int original_width = original_image.cols;
+  int original_height = original_image.rows;
+
+  Tensor image_t;
   if (transform_) {
-    image = transform_->process(image);
+    image_t = transform_->process(original_image);
+  } else {
+    image_t = Tensor(std::move(TensorImpl(original_image)));
   }
+
+  width_ = image_t.shape()[2];
+  height_ = image_t.shape()[1];
+
+  float width_ratio = static_cast<float>(width_) / original_width;
+  float height_ratio = static_cast<float>(height_) / original_height;
+
   std::vector<std::vector<float>> labels;
   std::string token;
   while (iss >> token) {
@@ -199,19 +175,49 @@ Tensor readImage(const std::string& image_path) {
     while (std::getline(token_iss, value, ',')) {
       box.push_back(std::stof(value));
     }
-    if (box.size() == 5) { // x_center, y_center, width, height, class_id
+    if (box.size() == 5) { // class_id, x_center, y_center, width, height
+      box[1] *= width_ratio;  // x_center
+      box[2] *= height_ratio; // y_center
+      box[3] *= width_ratio;  // width
+      box[4] *= height_ratio; // height
       labels.push_back(box);
     }
   }
-  return {image, Tensor(labels)}; // 假设 Tensor 可以接受 vector<vector<float>>
+
+  const int default_invalid_value = -1;
+  while (labels.size() < max_targets_) {
+    labels.push_back({static_cast<float>(default_invalid_value),
+                      static_cast<float>(default_invalid_value),
+                      static_cast<float>(default_invalid_value),
+                      static_cast<float>(default_invalid_value),
+                      static_cast<float>(default_invalid_value)});
+  }
+  return {image_t, Tensor(labels)};
 }
-
 DatasetYOLO::DatasetYOLO(
-    const std::string& annotation_lines, YOLODataType type,
+    const std::string& annotation_path, YOLODataType type,
     const std::shared_ptr<transforms::Transform>& transform)
-    : transform_(transform) {
+    : transform_(transform){
 
-  size_ = std::min(images_.size(), labels_.size());
+  std::ifstream infile(annotation_path);
+  if (!infile.is_open()) {
+    throw std::runtime_error("Can't open the file" + annotation_path);
+  }
+  std::string line;
+  if (std::getline(infile, line)) {
+    std::istringstream iss(line);
+    iss >> max_targets_ >> num_classes_;
+    if (iss.fail() || max_targets_ <= 0 || num_classes_ <= 0) {
+      throw std::runtime_error("invaild max_targets or num_class");
+    }
+  } else {
+    throw std::runtime_error("annotation file is not correct");
+  }
+  while (std::getline(infile, line)) {
+    annotation_lines_.push_back(line);
+  }
+  infile.close();
+  size_ = annotation_lines_.size();
 }
 
 }  // namespace TinyTorch::data

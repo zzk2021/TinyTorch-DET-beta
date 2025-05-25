@@ -108,18 +108,18 @@ class DarkNet : public nn::Module {
      std::vector<int> get_layers_out_filters() { return layers_out_filters;}
 };
 
-class YoloHead : public nn::Module {
+class YoloBody : public nn::Module {
   public:
-    YoloHead(std::vector<int32_t> anchors_mask_length, int32_t num_classes, bool pretrained):
+    YoloBody(std::vector<int32_t> anchors_mask_length, int32_t num_classes, bool pretrained):
        num_classes_(num_classes)
       {
          backbone = DarkNet();
          auto out_filters = backbone.get_layers_out_filters();
-         last_layer0 = _make_last_layer({512, 1024}, out_filters[-1], anchors_mask_length[0] * (num_classes + 5));
+         last_layer0 = _make_last_layer({512, 1024}, out_filters[out_filters.size()-1], anchors_mask_length[0] * (num_classes + 5));
          last_layer1_conv   = conv2d(512, 256, 1);
-         last_layer1 = _make_last_layer({256, 512}, out_filters[-2], anchors_mask_length[1] * (num_classes + 5));
+         last_layer1 = _make_last_layer({256, 512}, out_filters[out_filters.size()-2], anchors_mask_length[1] * (num_classes + 5));
          last_layer2_conv   = conv2d(256, 128, 1);
-         last_layer2 = _make_last_layer({128, 256}, out_filters[-3], anchors_mask_length[2] * (num_classes + 5));
+         last_layer2 = _make_last_layer({128, 256}, out_filters[out_filters.size()-3], anchors_mask_length[2] * (num_classes + 5));
       }
 
     std::vector<Tensor> forward(Tensor &x, bool l) override {
@@ -188,24 +188,22 @@ class YoloHead : public nn::Module {
     };
 };
 
-
 class YoloLoss : public nn::Module {
     public:
-       YoloLoss(std::vector<std::vector<int32_t>> anchors, int32_t num_classes, Shape input_shape, std::vector<std::vector<int32_t>> anchors_mask = {{6,7,8}, {3,4,5}, {0,1,2}}):
+       YoloLoss( int32_t num_classes, Shape input_shape, std::vector<std::vector<int32_t>> anchors):
             num_classes_(num_classes),
-            anchors_(std::move(anchors)),
-            input_shape_(std::move(input_shape)),
-            anchors_mask_(std::move(anchors_mask)),
             box_ratio_(0.05),
-            bbox_attrs_(5 + num_classes),
-            obj_ratio_(5.f * (input_shape_[0] * input_shape_[1]) / (pow(416,2))),
-            cls_ratio_(1.f * ((float)num_classes / 80)),
             ignore_threshold_(0.5)
             {
-
+               bbox_attrs_ = 5 + num_classes;
+                cls_ratio_ = 1.f * ((float)num_classes / 80);
+               input_shape_ = std::move(input_shape);
+               anchors_ = std::move(anchors);
+               obj_ratio_ = 5.f * ((float)input_shape_[0] * (float)input_shape_[1]) / (std::pow(416,2));
+               anchors_mask_ = {{6,7,8}, {3,4,5}, {0,1,2}};
 
             }
-        Tensor forward(Tensor &inputs, Array3d &targets) override {
+        Tensor forward(Tensor &inputs, Tensor &targets) override {
            Tensor loss  = Tensor::scalar(0);
            for (int l=0;l < inputs.shape()[0];l+=1){
             Tensor input = inputs[{{l,l+1},{},{},{},{}}];
@@ -256,17 +254,17 @@ class YoloLoss : public nn::Module {
         }
     private:
       int32_t num_classes_;
-      std::vector<std::vector<int32_t>> anchors_;
       Shape input_shape_;
-      std::vector<std::vector<int32_t>> anchors_mask_ ;
       float box_ratio_ ;
       int bbox_attrs_ ;
       float obj_ratio_ ;
       float cls_ratio_ ;
       float ignore_threshold_;
       nn::MSELoss mseloss;
-      std::tuple<Array5d, Array4d, Array4d, Array4d, int> get_target_(int32_t l, Array3d targets, Array2d anchors, int32_t in_h, int32_t in_w){
-        int bs               = targets.size();
+      std::vector<std::vector<int32_t>> anchors_;
+      std::vector<std::vector<int32_t>> anchors_mask_ ;
+      std::tuple<Array5d, Array4d, Array4d, Array4d, int> get_target_(int32_t l, Tensor targets, Array2d anchors, int32_t in_h, int32_t in_w){
+        int bs               = targets.shape()[0];
         Array4d noobj_mask(bs,
             Array3d(
                 static_cast<int>(anchors_mask_[l].size()),
@@ -289,16 +287,22 @@ class YoloLoss : public nn::Module {
             Array2d(in_h, Array1d(in_w, false))));
         int n = 0;
         for(int b=0;b<bs;b+=1){
-          if (targets[b].empty())
+          if (targets[{b,0,0}] == -1)
             continue;
-          Array2d batch_target(targets[b].size(), std::vector<float>(5, 0.0f));
+          std::vector<std::vector<float>> batch_target;
+          batch_target.reserve(targets.shape()[1]);
+          for (int t = 0; t < targets.shape()[1]; ++t) {
+            if (targets[{b,t,0}] == -1) {
+              break;
+            }
+            std::vector<float> target_box(5, 0.0f);
+            target_box[0] = targets[{b,t,1}] * in_w;
+            target_box[2] = targets[{b,t,3}] * in_w;
+            target_box[1] = targets[{b,t,2}] * in_h;
+            target_box[3] = targets[{b,t,4}] * in_h;
+            target_box[4] = targets[{b,t,0}];
 
-          for (size_t t = 0; t < batch_target.size(); ++t) {
-            batch_target[t][0] = targets[b][t][0] * in_w;
-            batch_target[t][2] = targets[b][t][2] * in_w;
-            batch_target[t][1] = targets[b][t][1] * in_h;
-            batch_target[t][3] = targets[b][t][3] * in_h;
-            batch_target[t][4] = targets[b][t][4];
+            batch_target.push_back(target_box);
           }
 
           int M = batch_target.size();
@@ -342,3 +346,167 @@ class YoloLoss : public nn::Module {
 
 
 };
+
+
+
+// Training settings
+struct TrainArgs {
+  // input batch size for training (default: 64)
+  static constexpr int32_t batchSize = 16;
+
+  // input batch size for testing (default: 1000)
+  static constexpr int32_t testBatchSize = 16;
+
+  // number of epochs to train (default: 1)
+  static constexpr int32_t epochs = 1;
+
+  // learning rate (default: 1.0)
+  static constexpr float lr = 0.1f;
+
+  // Learning rate step gamma (default: 0.7)
+  static constexpr float gamma = 0.7f;
+
+  // disables CUDA training
+  static constexpr bool noCuda = false;
+
+  // quickly check a single pass
+  static constexpr bool dryRun = false;
+
+  // random seed (default: 1)
+  static constexpr unsigned long seed = 1;
+
+  // how many batches to wait before logging training status
+  static constexpr int32_t logInterval = 10;
+
+  // For Saving the current Model
+  static constexpr bool saveModel = false;
+
+  static constexpr inline std::array<std::array<int32_t, 2>, 9> anchors = {{
+      {{10,13}}, {{16,30}}, {{33,23}},
+      {{30,61}}, {{62,45}}, {{59,119}},
+      {{116,90}}, {{156,198}}, {{373,326}}
+  }};
+
+
+};
+void train(TrainArgs &args, nn::Module &model, nn::Module &loss_fun, Device device,
+           data::DataLoader &dataLoader, optim::Optimizer &optimizer,
+           int32_t epoch) {
+  model.train();
+
+  Timer timer;
+  timer.start();
+  for (auto [batchIdx, batch] : dataLoader) {
+    auto &data = batch[0].to(device);
+    auto &target = batch[1].to(device);
+    optimizer.zeroGrad();
+    Tensor output = model(data);
+    auto loss = loss_fun(output, target);
+    loss.backward();
+    optimizer.step();
+
+    if (batchIdx % args.logInterval == 0) {
+      timer.mark();
+      auto currDataCnt = batchIdx * dataLoader.batchSize();
+      auto totalDataCnt = dataLoader.dataset().size();
+      auto elapsed = (float)timer.elapseMillis() / 1000.f;  // seconds
+      LOGD("Train Epoch: %d [%d/%d (%.0f%%)] Loss: %.6f, Elapsed: %.2fs", epoch,
+           currDataCnt, totalDataCnt, 100.f * currDataCnt / (float)totalDataCnt,
+           loss.item(), elapsed);
+
+      if (args.dryRun) {
+        break;
+      }
+    }
+  }
+}
+
+void test(nn::Module &model, nn::Module &loss_fun, Device device, data::DataLoader &dataLoader) {
+  model.eval();
+  Timer timer;
+  timer.start();
+  auto testLoss = 0.f;
+  auto correct = 0;
+  withNoGrad {
+    for (auto [batchIdx, batch] : dataLoader) {
+      auto &data = batch[0].to(device);
+      auto &target = batch[1].to(device);
+      auto output = model(data);
+      testLoss += loss_fun(output, target).item();
+      auto pred = output.data().argmax(1, true);
+      correct +=
+          (int32_t)(pred == target.data().view(pred.shape())).sum().item();
+    }
+  }
+  auto total = dataLoader.dataset().size();
+  testLoss /= (float)total;
+  timer.mark();
+  auto elapsed = (float)timer.elapseMillis() / 1000.f;  // seconds
+  LOGD(
+      "Test set: Average loss: %.4f, Accuracy: %d/%d (%.0f%%), Elapsed: "
+      "%.2fs",
+      testLoss, correct, total, 100. * correct / (float)total, elapsed);
+}
+
+void demo_yolov3() {
+  LOGD("demo_yolov3 ...");
+  Timer timer;
+  timer.start();
+
+  TrainArgs args;
+  manualSeed(args.seed);
+  // the anchors
+  const std::vector<std::vector<int32_t>> anchors = {
+      {10,13}, {16,30}, {33,23},
+      {30,61}, {62,45}, {59,119},
+      {116,90}, {156,198}, {373,326}
+  };
+
+  // input shape
+  const std::vector<int> input_shape = {416, 416};
+
+  auto useCuda = (!args.noCuda) && Tensor::deviceAvailable(Device::CUDA);
+  Device device = useCuda ? Device::CUDA : Device::CPU;
+  LOGD("Train with device: %s", useCuda ? "CUDA" : "CPU");
+
+  auto transform = std::make_shared<data::transforms::Compose>(
+          data::transforms::Resize(input_shape),
+          data::transforms::Normalize(0.5f, 0.2f)
+      );
+
+  auto trainDataset = std::make_shared<data::DatasetYOLO>(
+      R"(E:\data\coco128\coco128\train_annotation.txt)", data::DatasetYOLO::TRAIN, transform);
+
+  auto testDataset = std::make_shared<data::DatasetYOLO>(
+      R"(E:\data\coco128\coco128\test_annotation.txt)", data::DatasetYOLO::TEST, transform);
+
+  if (trainDataset->size() == 0 || testDataset->size() == 0) {
+    LOGE("Dataset invalid.");
+    return;
+  }
+
+  auto trainDataloader = data::DataLoader(trainDataset, args.batchSize, true);
+  auto testDataloader = data::DataLoader(testDataset, args.testBatchSize, true);
+
+  auto model = YoloBody({3,3,3},
+                        trainDataset->getNumClass(), false);
+  model.to(device);
+
+  auto loss = YoloLoss(trainDataset->getNumClass(), input_shape, anchors);
+  loss.to(device);
+  auto optimizer = optim::Adam(model.parameters(), args.lr);
+  auto scheduler = optim::lr_scheduler::StepLR(optimizer, 1, args.gamma);
+
+  for (auto epoch = 1; epoch < args.epochs + 1; epoch++) {
+    train(args, model, loss, device, trainDataloader, optimizer, epoch);
+    //test(model, loss, device, testDataloader);
+    scheduler.step();
+  }
+
+  if (args.saveModel) {
+    save(model, "mnist_cnn.model");
+  }
+
+  timer.mark();
+  LOGD("Total Time cost: %lld ms", timer.elapseMillis());
+}

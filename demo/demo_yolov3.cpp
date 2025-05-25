@@ -400,7 +400,7 @@ void train(TrainArgs &args, nn::Module &model, nn::Module &loss_fun, Device devi
     auto &data = batch[0].to(device);
     auto &target = batch[1].to(device);
     optimizer.zeroGrad();
-    Tensor output = model(data);
+    auto output = model.forward(data,true);
     auto loss = loss_fun(output, target);
     loss.backward();
     optimizer.step();

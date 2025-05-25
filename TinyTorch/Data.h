@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <numeric>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "Tensor.h"
@@ -62,11 +63,16 @@ class Compose : public Transform {
   }
 
   Tensor process(cv::Mat& input) const override {
-    Tensor ret;
+    std::variant<cv::Mat, Tensor> ret = input;
     for (auto& trans : transforms_) {
-      ret = trans->process(input);
+      if (std::holds_alternative<cv::Mat>(ret)) {
+        ret = trans->process( std::get<cv::Mat>(ret) );
+      }
+      else if (std::holds_alternative<Tensor>(ret)) {
+        ret = trans->process( std::get<Tensor>(ret) );
+      }
     }
-    return ret;
+    return std::get<Tensor>(ret);
   }
 
  private:

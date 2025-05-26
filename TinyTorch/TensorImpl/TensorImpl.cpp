@@ -1145,7 +1145,7 @@ TensorImpl TensorImpl::permute(const std::vector<int32_t> &dims) const {
 
 TensorImpl TensorImpl::index(const std::vector<int32_t> &indices) const {
   TENSOR_CHECK_EMPTY_RET(*this, {});
-  auto len = (int32_t)indices.size();
+  auto len = static_cast<int32_t>(indices.size());
   int32_t dataIdx = 0;
   for (int32_t i = 0; i < len; i++) {
     auto idx = indices[i];
@@ -1157,10 +1157,8 @@ TensorImpl TensorImpl::index(const std::vector<int32_t> &indices) const {
   for (int32_t i = len; i < dimCount_; i++) {
     retShape.push_back(shape_[i]);
   }
-  auto retTensor = shape(retShape, device_, type_);
+  auto retTensor = shape(retShape, device_);
   assert(dimStride == retTensor.elemCount_);
-
-
   ops_->copyOnDevice(retTensor.data_, &data_[dataIdx],
                      dimStride * sizeof(float));
   return retTensor;
@@ -1178,10 +1176,11 @@ TensorImpl TensorImpl::index(
   return ops_->index(*this, indices);
 }
 
+
 void TensorImpl::indexPut_(const std::vector<int32_t> &indices, float val) {
   TENSOR_CHECK_EMPTY_RET(*this, );
   cow();
-  auto len = (int32_t)indices.size();
+  auto len = static_cast<int32_t>(indices.size());
   int32_t dataIdx = 0;
   for (int32_t i = 0; i < len; i++) {
     auto idx = indices[i];
@@ -1191,13 +1190,11 @@ void TensorImpl::indexPut_(const std::vector<int32_t> &indices, float val) {
   ops_->fillConstant_(&data_[dataIdx], val, dimStride);
 }
 
-
-
 void TensorImpl::indexPut_(const std::vector<int32_t> &indices,
-     const TensorImpl &val) {
+                           const TensorImpl &val) {
   TENSOR_CHECK_EMPTY_RET(*this, );
   cow();
-  auto len = (int32_t)indices.size();
+  auto len = static_cast<int32_t>(indices.size());
   int32_t dataIdx = 0;
   for (int32_t i = 0; i < len; i++) {
     auto idx = indices[i];
@@ -1701,10 +1698,22 @@ TensorImpl TensorImpl::im2col(Size2D kernel, Size2D stride,
   return ops_->im2col(*this, kernel, stride, padding);
 }
 
+TensorImpl TensorImpl::im2col1D(Size1D kernel, Size1D stride,
+                              Size1D padding) const {
+  TENSOR_CHECK_EMPTY_RET(*this, {});
+  return ops_->im2col1D(*this, kernel, stride, padding);
+}
+
 TensorImpl TensorImpl::col2im(const Shape &shape, Size2D kernelSize,
                               Size2D stride, Size2D padding) const {
   TENSOR_CHECK_EMPTY_RET(*this, {});
   return ops_->col2im(*this, shape, kernelSize, stride, padding);
+}
+
+TensorImpl TensorImpl::col2im1D(const Shape &shape, Size1D kernelSize,
+                              Size1D stride, Size1D padding) const {
+  TENSOR_CHECK_EMPTY_RET(*this, {});
+  return ops_->col2im1D(*this, shape, kernelSize, stride, padding);
 }
 
 }  // namespace TinyTorch

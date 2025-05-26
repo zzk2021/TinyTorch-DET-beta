@@ -1018,3 +1018,60 @@ TEST(TEST_TensorImpl, basic_im2col_col2im) {
   EXPECT_THAT(r.toList(),
               ElementsAre(1, 2, 3, 0, 5, 6, 7, 0, 9, 10, 11, 0, 0, 0, 0, 0));
 }
+
+TEST(TEST_TensorImpl, basic_im2col_col2im_1d) {
+  {
+    auto input = TensorImpl({1, 2, 3, 4});
+    input.reshape_({1, 1, 4}); // [N=1, C=1, L=4]
+
+    auto col = input.im2col1D(Size1D{2}, Size1D{2}, Size1D{0});
+
+    EXPECT_THAT(col.shape(), ElementsAre(2, 2));
+    EXPECT_THAT(col.toList(), ElementsAre(1, 2, 3, 4));
+
+    auto r = col.col2im1D(input.shape(), Size1D{2}, Size1D{2}, Size1D{0});
+
+    EXPECT_EQ(r.shape(), input.shape());
+    EXPECT_EQ(r.toList(), input.toList());
+  }
+  {
+    auto input = TensorImpl({1, 2, 3, 4});
+    input.reshape_({1, 1, 4});
+    auto col = input.im2col1D(Size1D{2}, Size1D{3}, Size1D{0});
+    EXPECT_THAT(col.shape(), ElementsAre(1, 2));
+    EXPECT_THAT(col.toList(), ElementsAre(1, 2));
+    auto r = col.col2im1D(input.shape(), Size1D{2}, Size1D{3}, Size1D{0});
+    EXPECT_EQ(r.shape(), input.shape());
+    EXPECT_THAT(r.toList(), ElementsAre(1, 2, 0, 0));
+  }
+
+  {
+    auto input = TensorImpl({1, 2, 3, 4});
+    input.reshape_({1, 1, 4});
+
+    auto col = input.im2col1D(Size1D{3}, Size1D{2}, Size1D{0});
+
+
+    EXPECT_THAT(col.shape(), ElementsAre(1, 3));
+    EXPECT_THAT(col.toList(), ElementsAre(1, 2, 3));
+    auto r = col.col2im1D(input.shape(), Size1D{3}, Size1D{2}, Size1D{0});
+
+    EXPECT_EQ(r.shape(), input.shape());
+    EXPECT_THAT(r.toList(), ElementsAre(1, 2, 3, 0));
+  }
+
+  {
+    auto input = TensorImpl({1, 2, 3, 4});
+    input.reshape_({1, 1, 4});
+
+    auto col = input.im2col1D(Size1D{2}, Size1D{1}, Size1D{1});
+
+    EXPECT_THAT(col.shape(), ElementsAre(5, 2));
+    EXPECT_THAT(col.toList(), ElementsAre(0,1, 1,2, 2,3, 3,4, 4,0));
+
+    auto r = col.col2im1D(input.shape(), Size1D{2}, Size1D{1}, Size1D{1});
+
+    EXPECT_EQ(r.shape(), input.shape());
+    EXPECT_THAT(r.toList(), ElementsAre(2, 4, 6, 8));
+  }
+}

@@ -43,14 +43,15 @@ class DarkNet : public nn::Module {
       conv1(3, inplanes, 3, 1, 1, false),
       bn1(inplanes)
     {
-        registerModules({conv1, bn1});
+        //registerModules({conv1, bn1});
         layers_out_filters = {64, 128, 256, 512, 1024};
         layer1 = _make_layer({inplanes, layers_out_filters[0]}, layers[0]);
         layer2 = _make_layer({layers_out_filters[0], layers_out_filters[1]}, layers[1]);
         layer3 = _make_layer({layers_out_filters[1], layers_out_filters[2]}, layers[2]);
         layer4 = _make_layer({layers_out_filters[2], layers_out_filters[3]}, layers[3]);
         layer5 = _make_layer({layers_out_filters[3], layers_out_filters[4]}, layers[4]);
-        registerModules({layer1, layer2, layer3, layer4, layer5});
+
+        registerModules({conv1, bn1,layer1, layer2, layer3, layer4, layer5});
         initialize_weights();
     }
 
@@ -110,26 +111,27 @@ class DarkNet : public nn::Module {
 
 class YoloBody : public nn::Module {
   public:
-    YoloBody(std::vector<int32_t> anchors_mask_length, int32_t num_classes, bool pretrained):
-       num_classes_(num_classes)
+    YoloBody(std::vector<int32_t> anchors_mask_length, int32_t num_classes,DarkNet backbone, bool pretrained):
+       num_classes_(num_classes),
+       backbone_(backbone)
       {
-         backbone = DarkNet();
          auto out_filters = backbone.get_layers_out_filters();
          last_layer0 = _make_last_layer({512, 1024}, out_filters[out_filters.size()-1], anchors_mask_length[0] * (num_classes + 5));
          last_layer1_conv   = conv2d(512, 256, 1);
-         last_layer1 = _make_last_layer({256, 512}, out_filters[out_filters.size()-2], anchors_mask_length[1] * (num_classes + 5));
+         last_layer1 = _make_last_layer({256, 512}, out_filters[out_filters.size()-2] + 256, anchors_mask_length[1] * (num_classes + 5));
          last_layer2_conv   = conv2d(256, 128, 1);
-         last_layer2 = _make_last_layer({128, 256}, out_filters[out_filters.size()-3], anchors_mask_length[2] * (num_classes + 5));
+         last_layer2 = _make_last_layer({128, 256}, out_filters[out_filters.size()-3] + 128, anchors_mask_length[2] * (num_classes + 5));
+         registerModules({backbone_,last_layer0,last_layer1,last_layer1_conv,last_layer2_conv,last_layer2});
       }
 
     std::vector<Tensor> forward(Tensor &x, bool l) override {
-            auto x_ = backbone.forward(x, true);
+            auto x_ = backbone_.forward(x, true);
             auto x2 =  x_[0];auto x1 =  x_[1];auto x0 =  x_[2];
-            auto out0_branch = last_layer0[{0, 5}](x1);
+            auto out0_branch = last_layer0[{0, 5}](x0);
             auto out0 = last_layer0[{5, static_cast<int>(last_layer0.getsize())}](out0_branch);
             auto x1_in = last_layer1_conv(out0_branch);
             x1_in = Function::upsample(x1_in,2);
-            x1_in = Function::concat(x1_in, x1, -1);
+            x1_in = Function::concat(x1_in, x1, 1);
             auto out1_branch = last_layer1[{0, 5}](x1_in);
             auto out1  = last_layer1[{5,static_cast<int>(last_layer1.getsize())}](out1_branch);
             auto x2_in = last_layer2_conv(out1_branch);
@@ -141,14 +143,14 @@ class YoloBody : public nn::Module {
 
   private:
       int32_t num_classes_;
-      DarkNet backbone;
+      DarkNet backbone_;
       nn::Sequential last_layer0;
       nn::Sequential last_layer1;
       nn::Sequential last_layer1_conv;
       nn::Sequential last_layer2;
       nn::Sequential last_layer2_conv;
-      static nn::Sequential conv2d(int32_t filter_in,int32_t filter_out,int32_t kernel_size){
-          auto pad = (kernel_size - 1); // 2 if kernel_size else 0
+      nn::Sequential conv2d(int32_t filter_in,int32_t filter_out,int32_t kernel_size){
+          auto pad = (kernel_size - 1) / 2; // if kernel_size else 0
           auto seq = nn::Sequential();
           seq.pushBack(
             nn::Conv2D(filter_in, filter_out, kernel_size, 1, pad, false)
@@ -203,10 +205,12 @@ class YoloLoss : public nn::Module {
                anchors_mask_ = {{6,7,8}, {3,4,5}, {0,1,2}};
 
             }
-        Tensor forward(Tensor &inputs, Tensor &targets) override {
-           Tensor loss  = Tensor::scalar(0);
-           for (int l=0;l < inputs.shape()[0];l+=1){
-            Tensor input = inputs[{{l,l+1},{},{},{},{}}];
+        Tensor forward(std::vector<Tensor> &all) override{
+           auto inputs = std::vector{all[0], all[1], all[2]};
+           auto targets = all[3];
+           Tensor loss  = Tensor::scalar(0, true, inputs[0].device(),inputs[0].type());
+           for (int l=0;l < inputs.size();l+=1){
+            Tensor input = inputs[l];
             auto bs      = input.shape()[0];
             auto in_h    = input.shape()[2];
             auto in_w    =  input.shape()[3];
@@ -225,8 +229,8 @@ class YoloLoss : public nn::Module {
                                          bbox_attrs_, in_h, in_w});
             auto x = Function::sigmoid(prediction[{{},{},{0,1},{},{}}]);
             auto y = Function::sigmoid(prediction[{{},{},{1,2},{},{}}]);
-            auto w = Function::sigmoid(prediction[{{},{},{2,3},{},{}}]);
-            auto h = Function::sigmoid(prediction[{{},{},{3,4},{},{}}]);
+            auto w = prediction[{{},{},{2,3},{},{}}];
+            auto h = prediction[{{},{},{3,4},{},{}}];
             auto conf = Function::sigmoid(prediction[{{},{},{4,5},{},{}}]);
             auto pred_cls = Function::sigmoid(prediction[{{},{},{5,-1},{},{}}]);
             auto [y_true, noobj_mask, box_loss_scale, obj_mask, n] = get_target_(l, targets, scaled_anchors, in_h, in_w);
@@ -238,17 +242,24 @@ class YoloLoss : public nn::Module {
             box_loss_scale_t.to(input.device());
             obj_mask_t.to(input.device());
             y_true_t.to(input.device());
+            noobj_mask_t.to(input.device());
             if (n != 0){
                 auto loss_x  = (Function::bceLoss(x.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{0,1}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
                 auto loss_y  = (Function::bceLoss(y.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{1,2}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
                 auto loss_w  = (Function::mseLoss(w.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{2,3}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
                 auto loss_h  = (Function::mseLoss(h.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{3,4}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
                 auto loss_loc = (loss_x + loss_y + loss_h + loss_w) * 0.1;
-                auto loss_cls = Function::bceLoss(pred_cls.squeeze()[obj_mask_t],y_true_t[{{},{},{},{},{5,-1}}].squeeze()[obj_mask_t], TinyTorch::MEAN);
+                auto loss_cls = Function::bceLoss(Tensor(pred_cls.data().permute({0,1,3,4,2}), true)[obj_mask_t],y_true_t[{{},{},{},{},{5,-1}}][obj_mask_t], TinyTorch::MEAN);
                 loss  += loss_loc * box_ratio_ + loss_cls * cls_ratio_;
+                LOGD("loss_loc: %f , loss_cls:%f",loss_loc.toList()[0],loss_cls.toList()[0]);
             }
-            auto loss_conf   = Function::bceLoss(conf, obj_mask_t, TinyTorch::MEAN)[noobj_mask_t + obj_mask_t];
-            loss        += loss_conf  * obj_ratio_;
+            auto loss_conf   = (Function::bceLoss(conf.squeeze(), obj_mask_t, TinyTorch::NONE)[noobj_mask_t + obj_mask_t]).mean();
+            if (std::isnan(loss_conf.toList()[0])) {
+              LOGW("Warning: loss_conf is NaN, skipping this batch.");
+            }
+            else
+              loss  += loss_conf * obj_ratio_;
+            LOGD("loss_conf: %f",loss_conf.toList()[0]);
            }
            return loss;
         }
@@ -284,7 +295,7 @@ class YoloLoss : public nn::Module {
         Array4d obj_mask(bs,
             Array3d(
             static_cast<int>(anchors_mask_[l].size()),
-            Array2d(in_h, Array1d(in_w, false))));
+            Array2d(in_h, Array1d(in_w, 0.0f))));
         int n = 0;
         for(int b=0;b<bs;b+=1){
           if (targets[{b,0,0}] == -1)
@@ -337,7 +348,7 @@ class YoloLoss : public nn::Module {
             y_true[b][k][j][i][4] = 1;
             y_true[b][k][j][i][c+5] = 1;
             box_loss_scale[b][k][j][i] = batch_target[t][2] * batch_target[t][3] / in_w / in_h;
-            obj_mask[b][k][j][i] = true;
+            obj_mask[b][k][j][i] = 1.0f;
             n+=1;
           }
         }
@@ -352,16 +363,16 @@ class YoloLoss : public nn::Module {
 // Training settings
 struct TrainArgs {
   // input batch size for training (default: 64)
-  static constexpr int32_t batchSize = 16;
+  static constexpr int32_t batchSize = 2;
 
   // input batch size for testing (default: 1000)
-  static constexpr int32_t testBatchSize = 16;
+  static constexpr int32_t testBatchSize = 2;
 
   // number of epochs to train (default: 1)
   static constexpr int32_t epochs = 1;
 
   // learning rate (default: 1.0)
-  static constexpr float lr = 0.1f;
+  static constexpr float lr = 0.001f;
 
   // Learning rate step gamma (default: 0.7)
   static constexpr float gamma = 0.7f;
@@ -381,13 +392,17 @@ struct TrainArgs {
   // For Saving the current Model
   static constexpr bool saveModel = false;
 
-  static constexpr inline std::array<std::array<int32_t, 2>, 9> anchors = {{
-      {{10,13}}, {{16,30}}, {{33,23}},
-      {{30,61}}, {{62,45}}, {{59,119}},
-      {{116,90}}, {{156,198}}, {{373,326}}
-  }};
+  static inline const std::vector<std::vector<int32_t>> anchors = {
+      {10,13}, {16,30}, {33,23},
+      {30,61},{62,45}, {59,119},
+      {116,90}, {156,198}, {373,326}
+  };
 
+  static inline const std::vector<int32_t> input_shape = {416, 416};
 
+  inline static const std::string train_annotation_path = R"(E:\data\coco128\coco128\train_annotation.txt)";
+
+  inline static const std::string test_annotation_path = R"(E:\data\coco128\coco128\test_annotation.txt)";
 };
 void train(TrainArgs &args, nn::Module &model, nn::Module &loss_fun, Device device,
            data::DataLoader &dataLoader, optim::Optimizer &optimizer,
@@ -400,8 +415,10 @@ void train(TrainArgs &args, nn::Module &model, nn::Module &loss_fun, Device devi
     auto &data = batch[0].to(device);
     auto &target = batch[1].to(device);
     optimizer.zeroGrad();
-    auto output = model.forward(data,true);
-    auto loss = loss_fun(output, target);
+    auto output = model.forward(data, true);
+    output.push_back(target);
+    auto l = target.toList();
+    auto loss = loss_fun.forward(output);
     loss.backward();
     optimizer.step();
 
@@ -434,8 +451,7 @@ void test(nn::Module &model, nn::Module &loss_fun, Device device, data::DataLoad
       auto output = model(data);
       testLoss += loss_fun(output, target).item();
       auto pred = output.data().argmax(1, true);
-      correct +=
-          (int32_t)(pred == target.data().view(pred.shape())).sum().item();
+      correct += (int32_t)(pred == target.data().view(pred.shape())).sum().item();
     }
   }
   auto total = dataLoader.dataset().size();
@@ -470,15 +486,15 @@ void demo_yolov3() {
   LOGD("Train with device: %s", useCuda ? "CUDA" : "CPU");
 
   auto transform = std::make_shared<data::transforms::Compose>(
-          data::transforms::Resize(input_shape),
+          data::transforms::Resize(args.input_shape),
           data::transforms::Normalize(0.5f, 0.2f)
       );
 
   auto trainDataset = std::make_shared<data::DatasetYOLO>(
-      R"(E:\data\coco128\coco128\train_annotation.txt)", data::DatasetYOLO::TRAIN, transform);
+      args.train_annotation_path, data::DatasetYOLO::TRAIN, transform);
 
   auto testDataset = std::make_shared<data::DatasetYOLO>(
-      R"(E:\data\coco128\coco128\test_annotation.txt)", data::DatasetYOLO::TEST, transform);
+      args.test_annotation_path, data::DatasetYOLO::TEST, transform);
 
   if (trainDataset->size() == 0 || testDataset->size() == 0) {
     LOGE("Dataset invalid.");
@@ -487,12 +503,13 @@ void demo_yolov3() {
 
   auto trainDataloader = data::DataLoader(trainDataset, args.batchSize, true);
   auto testDataloader = data::DataLoader(testDataset, args.testBatchSize, true);
-
+  auto darknet = DarkNet();
+  darknet.to(Device::CUDA);
   auto model = YoloBody({3,3,3},
-                        trainDataset->getNumClass(), false);
+                        trainDataset->getNumClass(), darknet,false);
   model.to(device);
 
-  auto loss = YoloLoss(trainDataset->getNumClass(), input_shape, anchors);
+  auto loss = YoloLoss(trainDataset->getNumClass(), args.input_shape, args.anchors);
   loss.to(device);
   auto optimizer = optim::Adam(model.parameters(), args.lr);
   auto scheduler = optim::lr_scheduler::StepLR(optimizer, 1, args.gamma);

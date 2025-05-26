@@ -8,6 +8,10 @@
 
 namespace TinyTorch {
 
+struct OpCpuAssign {
+  float operator()(const float a, const float b) const {return b;}
+};
+
 struct OpCpuAdd {
   float operator()(const float a, const float b) const { return a + b; }
 };

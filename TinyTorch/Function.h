@@ -47,6 +47,7 @@ enum FunctionType {
   Function_LogSoftmax,
   Function_MaxPool2D,
   Function_Conv2D,
+  Function_Conv1D,
   Function_BatchNorm,
   Function_LayerNorm,
   Function_MSELoss,
@@ -103,6 +104,10 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor conv2d(const Tensor& input, const Tensor& weight,
                        const Tensor& bias = {}, Size2D stride = 1,
                        Size2D padding = 0);
+
+  static Tensor conv1d(const Tensor& input, const Tensor& weight,
+                       const Tensor& bias = {}, Size1D stride = 1,
+                       Size1D padding = 0);
 
   static Tensor layerNorm(const Tensor& input, const Tensor& weight,
                           const Tensor& bias, float eps = 1e-5);
@@ -416,6 +421,17 @@ class FuncConv2D : public Function {
  private:
   Size2D stride_;
   Size2D padding_;
+  TensorImpl col_;
+};
+
+class FuncConv1D : public Function {
+ public:
+  explicit FuncConv1D(Size1D stride, Size1D padding)
+      : stride_(stride), padding_(padding) {}
+  DEFINE_FUNCTION_MEMBERS(Function_Conv2D)
+ private:
+  Size1D stride_;
+  Size1D padding_;
   TensorImpl col_;
 };
 

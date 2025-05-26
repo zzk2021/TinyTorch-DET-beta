@@ -428,6 +428,13 @@ class TensorImpl {
   TensorImpl col2im(const Shape &shape, Size2D kernelSize, Size2D stride,
                     Size2D padding = 0) const;
 
+    // im2col 1D
+  TensorImpl im2col1D(Size1D kernel, Size1D stride, Size1D padding = 0) const;
+
+  // col2im 1D
+  TensorImpl col2im1D(const Shape &shape, Size1D kernelSize, Size1D stride,
+                    Size1D padding = 0) const;
+
   // properties
   Device device() const { return device_; }
 

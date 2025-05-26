@@ -475,10 +475,30 @@ void TensorOpsCPU::fillRandBernoulli_(TensorImpl& t, float p) {
 
 std::pair<TensorImpl, TensorImpl> TensorOpsCPU::from_mask(const TensorImpl& a,
                                    const TensorImpl& b) {
+
+    const int stride = b.numel();
+    const int n = a.numel();
+    assert(b.shape().size() <= a.shape().size());
+    TensorImpl mask;
+    if (a.shape() != b.shape()){
+        for (int i = 0; i < a.shape().size(); ++i) {
+            int dim_mask = (i < a.shape().size() - b.shape().size())
+                    ? 1 : b.shape()[i - (a.shape().size() - b.shape().size())];
+            int dim_target = a.shape()[i];
+            if (dim_mask != 1 && dim_mask != dim_target) {
+                assert(true);
+            }
+        }
+        mask = TensorImpl::zerosLike(a,a.device(),a.type());
+        broadcastImpl<OpCpuAssign>(mask, a, b);
+    }else{
+        mask = b;
+    }
+
     std::vector<int32_t> out_indices;
     int32_t count = 0;
-    for (size_t i = 0; i < b.numel(); ++i) {
-        if (b.data()[i] != 0.0f) ++count;
+    for (size_t i = 0; i < mask.numel(); ++i) {
+        if (mask.data()[i] != 0.0f) ++count;
     }
     TensorImpl result = TensorImpl::shape({count}, a.device_, a.type_);
     out_indices.clear();
@@ -487,8 +507,8 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCPU::from_mask(const TensorImpl& a,
 
     std::vector<float> indices;
     indices.resize(count);
-    for (int32_t i = 0; i < b.numel(); ++i) {
-        if (b.data()[i] != 0.0f) {
+    for (int32_t i = 0; i < mask.numel(); ++i) {
+        if (mask.data()[i] != 0.0f) {
             result.data_[index] = a.data_[i];
             indices[index] = static_cast<float>(i);
             ++index;
@@ -1119,7 +1139,48 @@ void TensorOpsCPU::indexPut_(
                  dimStride * sizeof(float));
   }
 }
+TensorImpl TensorOpsCPU::im2col1D(const TensorImpl& t,
+                                Size1D kernel,
+                                Size1D stride,
+                                Size1D padding) {
+    assert(t.dimCount_ == 2 || t.dimCount_ == 3);
+    const int32_t batch = (t.dimCount_ == 3) ? t.shape_[0] : 1;
+    const int32_t channels = (t.dimCount_ == 3) ? t.shape_[1] : t.shape_[0];
+    const int32_t length = (t.dimCount_ == 3) ? t.shape_[2] : t.shape_[1];
+    const int32_t outLength = (length - kernel.d + 2 * padding.d) / stride.d + 1;
 
+    const int32_t colH = outLength;
+    const int32_t colW = channels * kernel.d;
+    auto retTensor = TensorImpl::shape({batch * colH, colW}, t.device_);
+
+    const int32_t imStride = (t.dimCount_ == 3) ? t.strides_[2] : t.strides_[1];
+
+    for (int32_t n = 0; n < batch; ++n) {
+        for (int32_t c = 0; c < channels; ++c) {
+            for (int32_t kl = 0; kl < kernel.d; ++kl) {
+                for (int32_t l = 0; l < outLength; ++l) {
+
+                    const int32_t imPos = l * stride.d + kl - padding.d;
+
+                    const int32_t colIdx = n * outLength + l;
+                    const int32_t colWIdx = c * kernel.d + kl;
+
+                    if (imPos < 0 || imPos >= length) {
+                        retTensor.data_[colIdx * colW + colWIdx] = 0;
+                    } else {
+
+                        const int32_t imOffset = n * (channels * imStride)
+                                               + c * imStride
+                                               + imPos;
+                        retTensor.data_[colIdx * colW + colWIdx] = t.data_[imOffset];
+                    }
+                }
+            }
+        }
+    }
+
+    return retTensor;
+}
 TensorImpl TensorOpsCPU::im2col(const TensorImpl& t, Size2D kernel,
                                 Size2D stride, Size2D padding) {
   // this: [C, H, W], [N, C, H, W]
@@ -1202,6 +1263,52 @@ TensorImpl TensorOpsCPU::col2im(const TensorImpl& t, const Shape& shape,
     }
   }
   return retTensor;
+}
+
+TensorImpl TensorOpsCPU::col2im1D(const TensorImpl& t,
+                                const Shape& shape,
+                                Size1D kernel,
+                                Size1D stride,
+                                Size1D padding) {
+
+    assert(shape.size() == 2 || shape.size() == 3);
+
+    const int32_t batch = (shape.size() == 3) ? shape[0] : 1;
+    const int32_t channels = (shape.size() == 3) ? shape[1] : shape[0];
+    const int32_t length = (shape.size() == 3) ? shape[2] : shape[1];
+
+    const int32_t outLength = (length - kernel.d + 2 * padding.d) / stride.d + 1;
+
+    const int32_t colW = channels * kernel.d;
+
+    auto retTensor = TensorImpl::zeros(shape, t.device_);
+
+    const int32_t stride_n = (shape.size() == 3) ? retTensor.strides_[0] : 1;
+    const int32_t stride_c = (shape.size() == 3) ? retTensor.strides_[1] : retTensor.strides_[0];
+    const int32_t stride_l = (shape.size() == 3) ? retTensor.strides_[2] : retTensor.strides_[1];
+
+    for (int32_t n = 0; n < batch; ++n) {
+        for (int32_t l = 0; l < outLength; ++l) {
+            int32_t start = l * stride.d - padding.d;
+            int32_t end = start + kernel.d - 1;
+            if (end < 0 || start >= length) continue;
+
+            const int32_t colIdx = n * outLength + l;
+            for (int32_t c = 0; c < channels; ++c) {
+                for (int32_t kl = 0; kl < kernel.d; ++kl) {
+                    int32_t imPos = start + kl;
+
+                    if (imPos >= 0 && imPos < length) {
+                        int32_t imOffset = n * stride_n + c * stride_c + imPos * stride_l;
+                        int32_t colWIdx = c * kernel.d + kl;
+                        retTensor.data_[imOffset] += t.data_[colIdx * colW + colWIdx];
+                    }
+                }
+            }
+        }
+    }
+
+    return retTensor;
 }
 
 TensorImpl TensorOpsCPU::dot(const TensorImpl& a, const TensorImpl& b) {

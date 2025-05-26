@@ -168,13 +168,10 @@ std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
 
   std::vector<std::vector<float>> labels;
   std::string token;
+  std::vector<float> box;
   while (iss >> token) {
-    std::istringstream token_iss(token);
     std::string value;
-    std::vector<float> box;
-    while (std::getline(token_iss, value, ',')) {
-      box.push_back(std::stof(value));
-    }
+    box.push_back(std::stof(token));
     if (box.size() == 5) { // class_id, x_center, y_center, width, height
       box[1] *= width_ratio;  // x_center
       box[2] *= height_ratio; // y_center

@@ -66,12 +66,8 @@ Slice::Slice(std::initializer_list<int> list) {
 }
 
 Tensor Tensor::operator[](const Tensor& b) const {
-    if (b.shape() != this->shape()) {
-        throw std::invalid_argument("Invaild shape");
-    }
-    if (b.device() != this->device()) {
-        throw std::invalid_argument("Invaild device");
-    }
+    assert(b.device() == this->device() && "Invalid Device");
+    assert(this->shape().size() >= b.shape().size() && "Invalid shape");
     return Function::from_mask(*this, b);
 }
 
@@ -125,13 +121,14 @@ float Tensor::operator[](const std::vector<int>& indices) const {
     for (int i = 0; i < this->dim(); ++i) {
         offset += indices[i] * this->data_->strides()[i];
     }
-    float *o;
-    if (this->type() == Dtype::float32)
-        this->data_->ops()->copyOnDevice(o, &this->data_->data()[offset],sizeof(float));
-    else if (this->type() == Dtype::bfloat16 || this->type() == Dtype::float16)
-        this->data_->ops()->copyOnDevice(o, &this->data_->data()[offset],sizeof(float) / 2);
 
-    return *o;
+    auto retTensor = TensorImpl::scalar(0,this->device(),this->type());
+    if (this->type() == Dtype::float32)
+        this->data_->ops()->copyOnDevice(retTensor.data(), &this->data_->data()[offset],sizeof(float));
+    else if (this->type() == Dtype::bfloat16 || this->type() == Dtype::float16)
+        this->data_->ops()->copyOnDevice(retTensor.data(), &this->data_->data()[offset],sizeof(float) / 2);
+
+    return retTensor.toList()[0];
 }
 
 Tensor Tensor::shape(const Shape &shape, bool requiresGrad) {

@@ -27,7 +27,7 @@ class Module {
   virtual Tensor forward(Tensor &x) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2, Tensor &x3) { return {}; }
-
+  virtual Tensor forward(std::vector<Tensor> &x) { return {}; }
   virtual std::vector<Tensor> forward(Tensor &x1, bool many) { return {}; }
   virtual std::vector<Tensor> forward(std::vector<Tensor> &x, bool many) { return {}; }
   template <typename... Args>
@@ -265,6 +265,30 @@ class Conv2D : public Module {
   Tensor bias_;
   Dtype bw_type_;
   Dtype fw_type_;
+};
+
+class Conv1D : public Module {
+ public:
+  Conv1D(int32_t inFeatures, int32_t outFeatures, Size1D kernelSize,
+         Size1D stride = 1, Size1D padding = 0, bool bias = true);
+  Tensor forward(Tensor &input) override;
+  std::vector<Tensor *> parameters() override;
+  std::vector<Tensor *> states() override;
+  void resetParameters() override;
+  void zeroGrad() override;
+  Tensor &weights() { return weights_; }
+  Tensor &bias() { return bias_; }
+  Size1D &kernelsize() {return kernelSize_;}
+  int32_t &outfeatures() {return outFeatures_;}
+ private:
+  int32_t inFeatures_;
+  int32_t outFeatures_;
+  Size1D kernelSize_;
+  Size1D stride_;
+  Size1D padding_;
+  bool useBias_;
+  Tensor weights_;
+  Tensor bias_;
 };
 
 class BatchNorm2D : public Module {

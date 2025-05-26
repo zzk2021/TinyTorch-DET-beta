@@ -108,7 +108,7 @@ Tensor Function::sum(const Tensor& a) {
 }
 
 Tensor Function::mean(const Tensor& a) {
-  return std::make_shared<FuncSum>()->callForward({&a});
+  return std::make_shared<FuncMean>()->callForward({&a});
 }
 
 Tensor Function::max(const Tensor& a, int32_t dim ,bool keepdim) {
@@ -181,6 +181,12 @@ Tensor Function::maxPool2d(const Tensor& input, Size2D kernelSize,
 Tensor Function::conv2d(const Tensor& input, const Tensor& weight,
                         const Tensor& bias, Size2D stride, Size2D padding) {
   return std::make_shared<FuncConv2D>(stride, padding)
+      ->callForward({&input, &weight, &bias});
+}
+
+Tensor Function::conv1d(const Tensor& input, const Tensor& weight,
+                        const Tensor& bias, Size1D stride, Size1D padding) {
+  return std::make_shared<FuncConv1D>(stride, padding)
       ->callForward({&input, &weight, &bias});
 }
 
@@ -372,9 +378,7 @@ TensorImpl FuncMask::forward(const std::vector<const Tensor*>& inputs) {
     // notice! we could not save tensor b grad, tensor b for mask can't backpropagation
     const Tensor& a = *inputs[0];
     const Tensor& b = *inputs[1];
-    if (b.isRequiresGrad()){
-        throw  std::runtime_error("the mask must be no Grad");
-    }
+    assert(!b.isRequiresGrad() && "the mask must be no Grad");
     saveForBackward({&a});
     auto ret = a.data().ops()->from_mask(a.data(), b.data());
     indice_ = ret.second;
@@ -413,29 +417,18 @@ std::vector<TensorImpl> FuncSlice::backward(const TensorImpl& grad) {
 
 TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {
     saveForBackward(inputs);
-    if (inputs.size() != 2) {
-        throw std::invalid_argument("ConCat requires exactly 2 input tensors");
-    }
+    assert(inputs.size() == 2);
     const Tensor& t1 = *inputs[0];
     const Tensor& t2 = *inputs[1];
     const auto& shape1 = t1.data().shape();
     const auto& shape2 = t2.data().shape();
-
-    if (shape1.size() != shape2.size() || t1.device() != t2.device() || t1.type() != t2.type()) {
-        throw std::runtime_error("All inputs must have the same number of dimensions, same device, same type");
-    }
-
+    assert(shape1.size() == shape2.size() && t1.device() == t2.device() && t1.type() == t2.type());
     const int32_t concat_dim = dim_;
     const int32_t ndims = shape1.size();
-
-    if (concat_dim < 0 || concat_dim >= ndims) {
-        throw std::runtime_error("Invalid concatenation dimension");
-    }
+    assert(concat_dim >= 0  || concat_dim < ndims);
 
     for (int32_t i = 0; i < ndims; ++i) {
-        if (i != concat_dim && shape1[i] != shape2[i]) {
-            throw std::runtime_error("Non-concat dimensions must be equal");
-        }
+        assert((i == concat_dim || shape1[i] == shape2[i]) && "Non-concat dimensions must be equal");
     }
 
     if (t1.device() == Device::CUDA){
@@ -725,8 +718,7 @@ std::vector<TensorImpl> FuncMean::backward(const TensorImpl& grad) {
   std::vector<TensorImpl> ret;
   auto& input = savedTensors[0];
   if (input.isRequiresGrad()) {
-    ret.push_back(grad * TensorImpl::onesLike(input.data(), input.device(),
-                                              input.type()) * 1 / (float)input.numel());
+    ret.push_back(grad  / (float)input.numel());
   }
   return ret;
 }
@@ -1017,6 +1009,38 @@ std::vector<TensorImpl> FuncMaxPool2D::backward(const TensorImpl& grad) {
   return ret;
 }
 
+TensorImpl FuncConv1D::forward(const std::vector<const Tensor*>& inputs) {
+    saveForBackward(inputs);
+    auto& input = inputs[0]->data();
+    auto& weight = inputs[1]->data();
+    auto& bias = inputs[2]->data();
+
+    assert(input.dim() == 3);  // [batch, in_channels, length]
+    assert(weight.dim() == 3); // [out_channels, in_channels, kernel_size]
+    assert(input.shape()[1] == weight.shape()[1]); //
+
+    const int32_t batch = input.shape()[0];
+    const int32_t outChannels = weight.shape()[0];
+    const int32_t inChannels = weight.shape()[1];
+    const int32_t kernelSize = weight.shape()[2];
+    const int32_t inputLength = input.shape()[2];
+
+    const int32_t outLength = (inputLength - kernelSize + 2 * padding_.d) / stride_.d + 1;
+
+    col_ = input.im2col1D(kernelSize, stride_, padding_); // [batch, outLength, inChannels*kernelSize]
+
+    auto colW = TensorImpl::reshape(weight, {outChannels, -1});
+
+    auto ret = TensorImpl::matmulTrans(col_, colW, false, true);
+    if (!bias.empty()) {
+        assert(bias.dim() == 1);
+        assert(bias.shape()[0] == outChannels);
+        ret += bias; // [batch, outLength, outChannels]
+    }
+    ret.reshape_({batch, outChannels, outLength});
+    return ret;
+}
+
 TensorImpl FuncConv2D::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   auto& input = inputs[0]->data();
@@ -1042,6 +1066,41 @@ TensorImpl FuncConv2D::forward(const std::vector<const Tensor*>& inputs) {
     ret += bias;
   }
   ret.reshape_({batch, outChannels, outH, outW});
+  return ret;
+}
+
+std::vector<TensorImpl> FuncConv1D::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  auto& input = savedTensors[0].data();
+  auto& weight = savedTensors[1].data();
+
+  int32_t outChannels = weight.shape()[0];
+  Size1D kernelSize {weight.shape()[2]};
+
+  auto gradW = TensorImpl::reshape(grad, {-1, outChannels}); // [N*L, O]
+
+  std::vector<TensorImpl> ret;
+
+  if (savedTensors[0].isRequiresGrad()) {
+    auto colW = TensorImpl::reshape(weight, {outChannels, -1}); // [O, I*K]
+    auto gradCol = TensorImpl::matmul(gradW, colW);             // [N*L, I*K]
+    auto dx = gradCol.col2im1D(input.shape(),
+                             kernelSize,
+                             stride_,
+                             padding_);
+    ret.push_back(std::move(dx));
+  }
+
+  if (savedTensors[1].isRequiresGrad()) {
+    auto gradColW = TensorImpl::matmulTrans(col_, gradW, true, false); // [I*K, O]
+    auto dw = TensorImpl::reshape(gradColW.permute(), weight.shape()); // [O, I, K]
+    ret.push_back(std::move(dw));
+  }
+
+  if (!savedTensors[2].empty() && savedTensors[2].isRequiresGrad()) {
+    auto db = TensorImpl::sum(gradW, 0);
+    ret.push_back(std::move(db));
+  }
   return ret;
 }
 
@@ -1213,8 +1272,9 @@ std::vector<TensorImpl> FuncBatchNorm::backward(const TensorImpl& grad) {
 
 TensorImpl FuncBCELoss::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
-  auto ret = 0 - (inputs[1]->data() * TensorImpl::log(inputs[0]->data().clamp(eps_, 1 - eps_)) +
-          (1.0f - inputs[1]->data()) * TensorImpl::log((1.0f - inputs[0]->data()).clamp(eps_, 1 - eps_)));
+  auto p = inputs[0]->data().clamp(eps_, 1 - eps_);
+  auto y = inputs[1]->data();
+  auto ret = 0 - (y * TensorImpl::log(p) + (1 - y) * TensorImpl::log(1 - p));
   switch (reduction_) {
     case MEAN:
       return ret.mean();

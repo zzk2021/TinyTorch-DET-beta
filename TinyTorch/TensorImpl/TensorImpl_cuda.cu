@@ -1303,7 +1303,7 @@ TensorImpl TensorOpsCUDA::im2col(const TensorImpl& t, Size2D kernel,
 
   int32_t colH = outH * outW;
   int32_t colW = channels * kernel.h * kernel.w;
-  auto retTensor = TensorImpl::shape({batch * colH, colW}, t.device_);
+  auto retTensor = TensorImpl::shape({batch * colH, colW}, t.device_, t.type_);
 
   int32_t imStride = t.strides_[0];
   int totalElements = batch * outH * outW * channels * kernel.h * kernel.w;
@@ -1314,19 +1314,89 @@ TensorImpl TensorOpsCUDA::im2col(const TensorImpl& t, Size2D kernel,
       kernel.h, kernel.w, stride.h, stride.w, padding.h, padding.w, imStride,
       colH, colW);
   else if (t.type_ == Dtype::float16){
-      retTensor.to_(Dtype::float16);
     kIm2Col<half><<<getGridSize(totalElements), getBlockSize()>>>(
       reinterpret_cast<half*>(retTensor.data_), reinterpret_cast<half*>(t.data_), batch, channels, height, width, outH, outW,
       kernel.h, kernel.w, stride.h, stride.w, padding.h, padding.w, imStride,
       colH, colW);
     }
   else if (t.type_ == Dtype::bfloat16){
-      retTensor.to_(Dtype::bfloat16);
     kIm2Col<__nv_bfloat16><<<getGridSize(totalElements), getBlockSize()>>>(
       reinterpret_cast<__nv_bfloat16*>(retTensor.data_),reinterpret_cast<__nv_bfloat16*>(t.data_), batch, channels, height, width, outH, outW,
       kernel.h, kernel.w, stride.h, stride.w, padding.h, padding.w, imStride,
       colH, colW);
     }
+
+  CUDA_KERNEL_CHECK();
+  return retTensor;
+}
+TensorImpl TensorOpsCUDA::im2col1D(const TensorImpl& t,
+                                 Size1D kernel_size,
+                                 Size1D stride,
+                                 Size1D padding) {
+
+  assert(t.dimCount_ == 2 || t.dimCount_ == 3);
+
+  const int32_t batch = (t.dimCount_ == 3) ? t.shape_[0] : 1;
+  const int32_t channels = (t.dimCount_ == 3) ? t.shape_[1] : t.shape_[0];
+  const int32_t length = (t.dimCount_ == 3) ? t.shape_[2] : t.shape_[1];
+
+  const int32_t outLength = (length - kernel_size.d + 2 * padding.d) / stride.d + 1;
+
+  const int32_t colH = outLength;
+  const int32_t colW = channels * kernel_size.d;
+  auto retTensor = TensorImpl::shape({batch * colH, colW}, t.device_, t.type_);
+
+  const int totalElements = batch * outLength * channels * kernel_size.d;
+  const int imStride = (t.dimCount_ == 3) ? t.strides_[2] : t.strides_[1];
+
+  if (t.type_ == Dtype::float32) {
+    kIm2Col1D<<<getGridSize(totalElements), getBlockSize()>>>(
+        retTensor.data(),
+        t.data(),
+        batch,
+        channels,
+        length,
+        outLength,
+        kernel_size.d,
+        stride.d,
+        padding.d,
+        imStride,
+        colH,
+        colW
+    );
+  }
+  else if (t.type_ == Dtype::float16) {
+    kIm2Col1D<half><<<getGridSize(totalElements), getBlockSize()>>>(
+        reinterpret_cast<half*>(retTensor.data()),
+        reinterpret_cast<const half*>(t.data()),
+        batch,
+        channels,
+        length,
+        outLength,
+        kernel_size.d,
+        stride.d,
+        padding.d,
+        imStride,
+        colH,
+        colW
+    );
+  }
+  else if (t.type_ == Dtype::bfloat16) {
+    kIm2Col1D<__nv_bfloat16><<<getGridSize(totalElements), getBlockSize()>>>(
+        reinterpret_cast<__nv_bfloat16*>(retTensor.data()),
+        reinterpret_cast<const __nv_bfloat16*>(t.data()),
+        batch,
+        channels,
+        length,
+        outLength,
+        kernel_size.d,
+        stride.d,
+        padding.d,
+        imStride,
+        colH,
+        colW
+    );
+  }
 
   CUDA_KERNEL_CHECK();
   return retTensor;
@@ -1347,7 +1417,7 @@ TensorImpl TensorOpsCUDA::col2im(const TensorImpl& t, const Shape& shape,
   // int32_t colH = outH * outW;
   int32_t colW = channels * kernel.h * kernel.w;
 
-  auto retTensor = TensorImpl::zeros(shape, t.device_);
+  auto retTensor = TensorImpl::zeros(shape, t.device_, t.type_);
 
   auto imStride = retTensor.strides_[0];
   int totalElements = batch * channels * height * width;
@@ -1358,14 +1428,13 @@ TensorImpl TensorOpsCUDA::col2im(const TensorImpl& t, const Shape& shape,
       kernel.h, kernel.w, stride.h, stride.w, padding.h, padding.w, imStride,
       colW);
   else if (t.type_ == Dtype::float16){
-      retTensor.to_(Dtype::float16);
+
     kCol2Im<half><<<getGridSize(totalElements), getBlockSize()>>>(
       reinterpret_cast<half*>(retTensor.data_), reinterpret_cast<half*>(t.data_), batch, channels, height, width, outH, outW,
       kernel.h, kernel.w, stride.h, stride.w, padding.h, padding.w, imStride,
       colW);
     }
   else if (t.type_ == Dtype::bfloat16){
-      retTensor.to_(Dtype::bfloat16);
     kCol2Im<__nv_bfloat16><<<getGridSize(totalElements), getBlockSize()>>>(
       reinterpret_cast<__nv_bfloat16*>(retTensor.data_),reinterpret_cast<__nv_bfloat16*>(t.data_), batch, channels, height, width, outH, outW,
       kernel.h, kernel.w, stride.h, stride.w, padding.h, padding.w, imStride,
@@ -1373,6 +1442,72 @@ TensorImpl TensorOpsCUDA::col2im(const TensorImpl& t, const Shape& shape,
     }
   CUDA_KERNEL_CHECK();
   return retTensor;
+}
+
+TensorImpl TensorOpsCUDA::col2im1D(const TensorImpl& t,
+                                 const Shape& shape,
+                                 Size1D kernel,
+                                 Size1D stride,
+                                 Size1D padding) {
+    assert(shape.size() == 2 || shape.size() == 3);
+
+    const int32_t batch = (shape.size() == 3) ? shape[0] : 1;
+    const int32_t channels = (shape.size() == 3) ? shape[1] : shape[0];
+    const int32_t length = (shape.size() == 3) ? shape[2] : shape[1];
+
+    const int32_t outLength = (length - kernel.d + 2 * padding.d) / stride.d + 1;
+
+    const int32_t colW = channels * kernel.d;
+
+    auto retTensor = TensorImpl::zeros(shape, t.device_, t.type_);
+
+    const int32_t imStride = retTensor.strides_.back();
+    const int totalElements = batch * channels * length;
+
+    if (t.type_ == Dtype::float32) {
+        kCol2Im1D<float><<<getGridSize(totalElements), getBlockSize()>>>(
+            retTensor.data(),
+            t.data(),
+            batch,
+            channels,
+            length,
+            outLength,
+            kernel.d,
+            stride.d,
+            padding.d,
+            colW
+        );
+    }
+    else if (t.type_ == Dtype::float16) {
+        kCol2Im1D<half><<<getGridSize(totalElements), getBlockSize()>>>(
+            reinterpret_cast<half*>(retTensor.data()),
+            reinterpret_cast<const half*>(t.data()),
+            batch,
+            channels,
+            length,
+            outLength,
+            kernel.d,
+            stride.d,
+            padding.d,
+            colW
+        );
+    }
+    else if (t.type_ == Dtype::bfloat16) {
+        kCol2Im1D<__nv_bfloat16><<<getGridSize(totalElements), getBlockSize()>>>(
+            reinterpret_cast<__nv_bfloat16*>(retTensor.data()),
+            reinterpret_cast<const __nv_bfloat16*>(t.data()),
+            batch,
+            channels,
+            length,
+            outLength,
+            kernel.d,
+            stride.d,
+            padding.d,
+            colW
+        );
+    }
+    CUDA_KERNEL_CHECK();
+    return retTensor;
 }
 
 TensorImpl TensorOpsCUDA::dot(const TensorImpl& a, const TensorImpl& b) {
@@ -1529,6 +1664,23 @@ TensorImpl TensorOpsCUDA::leakyrelu(const TensorImpl& a, float rate){
 }
 
 std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, const TensorImpl& b) {
+    assert(b.shape().size() <= a.shape().size());
+    TensorImpl mask;
+    if (a.shape() != b.shape()){
+        for (int i = 0; i < a.shape().size(); ++i) {
+            int dim_mask = (i < a.shape().size() - b.shape().size())
+                    ? 1 : b.shape()[i - (a.shape().size() - b.shape().size())];
+            int dim_target = a.shape()[i];
+            if (dim_mask != 1 && dim_mask != dim_target) {
+                assert(true);
+            }
+        }
+        mask = TensorImpl::zerosLike(a,a.device(),a.type());
+        if (a.type_ == Dtype::float32)
+          broadcastImpl<OpCudaAssign>(mask, a, b);
+    }else{
+        mask = b;
+    }
     int32_t ndim = a.shape_.size();
     int numElements = a.numel();
     int* d_prefixSum;
@@ -1536,9 +1688,11 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, 
     const int blockSize = 256;
     int gridSize = (numElements + blockSize - 1) / blockSize;
 
-    computePrefixSumKernel<<<gridSize, blockSize>>>(b.data(), d_prefixSum, numElements);
+    computePrefixSumKernel<<<gridSize, blockSize>>>(
+        mask.data(), d_prefixSum, numElements);
     thrust::device_ptr<int> thrust_prefixSum(d_prefixSum);
-    thrust::inclusive_scan(thrust_prefixSum, thrust_prefixSum + numElements, thrust_prefixSum);
+    thrust::inclusive_scan(thrust_prefixSum,
+                           thrust_prefixSum + numElements, thrust_prefixSum);
 
     int totalValid;
     float *indice;
@@ -1549,19 +1703,15 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, 
 
     TensorImpl ret = TensorImpl::shape({totalValid}, a.device(), a.type());
 
-    gatherElementsKernel<<<gridSize, blockSize>>>(a.data(), d_prefixSum, indice, ret.data(), numElements);
+    gatherElementsKernel<<<gridSize, blockSize>>>(a.data(),
+          d_prefixSum, indice, ret.data(), numElements);
     //scatterElementsKernel<<<gridSize, blockSize>>>(d_input, d_prefixSum, ret.data(), numElements);
     copyDeviceToHost(indices_host.data(), indice, totalValid * sizeof(float));
 
     deallocate(d_prefixSum);
     deallocate(indice);
-    cudaDeviceSynchronize();  // ⚠️ 强制同步
     // Step 5: Check for kernel errors
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err));
-    }
-
+    CUDA_KERNEL_CHECK();
     TensorImpl indices_t =  TensorImpl(indices_host,a.device());
 
     return {ret, indices_t};

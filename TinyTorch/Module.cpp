@@ -187,7 +187,53 @@ Tensor MaxPool2D::forward(Tensor &input) {
   return Function::maxPool2d(input, kernelSize_, stride_, padding_);
 }
 
+Conv1D::Conv1D(int32_t inFeatures, int32_t outFeatures, Size1D kernelSize,
+               Size1D stride, Size1D padding, bool bias)
+    : inFeatures_(inFeatures),
+      outFeatures_(outFeatures),
+      kernelSize_(kernelSize),
+      stride_(stride),
+      padding_(padding),
+      useBias_(bias){
+  weights_ = Tensor::shape(
+      {outFeatures, inFeatures, kernelSize_.d}, true);
+  if (bias) {
+    bias_ = Tensor::shape({outFeatures}, true);
+  }
+  Conv1D::resetParameters();
+}
 
+Tensor Conv1D::forward(Tensor &input) {
+  return Function::conv1d(input, weights_, bias_, stride_, padding_);
+}
+
+std::vector<Tensor *> Conv1D::parameters() {
+  if (useBias_) {
+    return {&weights_, &bias_};
+  }
+  return {&weights_};
+}
+
+
+std::vector<Tensor *> Conv1D::states() { return parameters(); }
+
+void Conv1D::resetParameters() {
+  Init::kaimingUniform(weights_, std::sqrt(5.f));
+  if (useBias_) {
+    auto fanIn = Init::calculateFan(weights_).first;
+    if (fanIn != 0) {
+      const auto bound = 1.f / std::sqrt((float)fanIn);
+      Init::uniform(bias_, -bound, bound);
+    }
+  }
+}
+
+void Conv1D::zeroGrad() {
+  weights_.zeroGrad();
+  if (useBias_) {
+    bias_.zeroGrad();
+  }
+}
 
 Conv2D::Conv2D(int32_t inFeatures, int32_t outFeatures, Size2D kernelSize,
                Size2D stride, Size2D padding, bool bias, Dtype fw_type ,

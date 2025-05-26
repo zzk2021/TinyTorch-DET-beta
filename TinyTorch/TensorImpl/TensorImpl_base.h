@@ -40,6 +40,11 @@ struct TINYTORCH_ALIGN(TENSOR_MEM_ALIGN) Size2D {
   int32_t w = 0;
 };
 
+struct TINYTORCH_ALIGN(TENSOR_MEM_ALIGN) Size1D {
+  Size1D(int32_t n) : d(n) {}
+  int32_t d = 0;
+};
+
 template <typename T>
 struct TINYTORCH_ALIGN(TENSOR_MEM_ALIGN) FixedVector {
   T data[TENSOR_MAX_DIMS]{};
@@ -211,6 +216,12 @@ typedef enum ShapeCompatible_ {
   _H TensorImpl col2im(const TensorImpl& t, const Shape& shape, Size2D kernel, \
                        Size2D stride, Size2D padding) _T;                      \
                                                                                \
+    /* im2col 1D*/                                                               \
+  _H TensorImpl im2col1D(const TensorImpl& t, Size1D kernel, Size1D stride,    \
+                       Size1D padding) _T;                                     \
+  /* col2im 1D*/                                                                 \
+  _H TensorImpl col2im1D(const TensorImpl& t, const Shape& shape,Size1D kernel,\
+                       Size1D stride, Size1D padding) _T;                      \
   /* dot */                                                                    \
   _H TensorImpl dot(const TensorImpl& a, const TensorImpl& b) _T;              \
                                                                                \

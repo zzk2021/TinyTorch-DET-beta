@@ -69,6 +69,7 @@ class Tensor {
   Tensor reshape(const Shape &shape) const;
   static Tensor reshape(const Tensor &t, const Shape &shape);
 
+
   Tensor flatten(int32_t startDim = 0, int32_t endDim = -1) const;
   static Tensor flatten(const Tensor &t, int32_t startDim = 0,
                         int32_t endDim = -1);

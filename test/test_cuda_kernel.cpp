@@ -11,6 +11,49 @@
 
 using namespace TinyTorch;
 
+TEST(TEST_cuda_kernel, broadcast_mask_test) {
+  Array3d a_data = {{
+                        {1.0, -2.0, 3.0, -4.0},
+                        {-5.0, 6.0, -7.0, 8.0},
+                        {9.0, -10.0, 11.0, -12.0}
+                    }, {
+                        {-13.0, 14.0, -15.0, 16.0},
+                        {17.0, -18.0, 19.0, -20.0},
+                        {-21.0, 22.0, -23.0, 24.0}
+                    }};
+  Tensor a = Tensor(a_data, true).to(Device::CUDA);
+  Array3d mask_raw = {
+      {{1.0f}, {0.0f}, {1.0f}}
+  };
+  Tensor mask = Tensor(mask_raw, false).to(Device::CUDA);
+  auto b_gpu = a[mask];
+
+  auto expected_values = std::vector<float>({
+      1.0, -2.0, 3.0, -4.0,
+      9.0, -10.0, 11.0, -12.0,
+
+      -13.0, 14.0, -15.0, 16.0,
+      -21.0, 22.0, -23.0, 24.0
+  });
+  EXPECT_THAT(b_gpu.data().toList(), ElementsAreArray(expected_values));
+
+  Tensor loss = b_gpu.sum();
+  loss.backward();
+  std::vector<float> expected_grad = {
+      // batch 0
+      1.0, 1.0, 1.0, 1.0,  // row 0
+      0.0, 0.0, 0.0, 0.0,  // row 1
+      1.0, 1.0, 1.0, 1.0,  // row 2
+
+      // batch 1
+      1.0, 1.0, 1.0, 1.0,  // row 0
+      0.0, 0.0, 0.0, 0.0,  // row 1
+      1.0, 1.0, 1.0, 1.0   // row 2
+  };
+  auto grad_list = a.getGrad().toList();
+  EXPECT_THAT(grad_list, ElementsAreArray(expected_grad));
+}
+
 TEST(TEST_cuda_kernel, func_from_mask) {
   // test scale_factor = 2    device = CUDA
   Array4d ary = {{
@@ -328,3 +371,59 @@ TEST(TEST_Function, leakyrelu_cuda) {
   }
 }
 
+TEST(TEST_cuda_kernel, func_basic_im2col_col2im_1d) {
+  {
+    auto input = TensorImpl({1, 2, 3, 4},Device::CUDA);
+    input.reshape_({1, 1, 4}); // [N=1, C=1, L=4]
+
+    auto col = input.im2col1D(Size1D{2}, Size1D{2}, Size1D{0});
+
+    EXPECT_THAT(col.shape(), ElementsAre(2, 2));
+    EXPECT_THAT(col.toList(), ElementsAre(1, 2, 3, 4));
+
+    auto r = col.col2im1D(input.shape(), Size1D{2}, Size1D{2}, Size1D{0});
+
+    EXPECT_EQ(r.shape(), input.shape());
+    EXPECT_EQ(r.toList(), input.toList());
+  }
+  {
+    auto input = TensorImpl({1, 2, 3, 4},Device::CUDA);
+    input.reshape_({1, 1, 4});
+    auto col = input.im2col1D(Size1D{2}, Size1D{3}, Size1D{0});
+    EXPECT_THAT(col.shape(), ElementsAre(1, 2));
+    EXPECT_THAT(col.toList(), ElementsAre(1, 2));
+    auto r = col.col2im1D(input.shape(), Size1D{2}, Size1D{3}, Size1D{0});
+    EXPECT_EQ(r.shape(), input.shape());
+    EXPECT_THAT(r.toList(), ElementsAre(1, 2, 0, 0));
+  }
+
+  {
+    auto input = TensorImpl({1, 2, 3, 4},Device::CUDA);
+    input.reshape_({1, 1, 4});
+
+    auto col = input.im2col1D(Size1D{3}, Size1D{2}, Size1D{0});
+
+
+    EXPECT_THAT(col.shape(), ElementsAre(1, 3));
+    EXPECT_THAT(col.toList(), ElementsAre(1, 2, 3));
+    auto r = col.col2im1D(input.shape(), Size1D{3}, Size1D{2}, Size1D{0});
+
+    EXPECT_EQ(r.shape(), input.shape());
+    EXPECT_THAT(r.toList(), ElementsAre(1, 2, 3, 0));
+  }
+
+  {
+    auto input = TensorImpl({1, 2, 3, 4},Device::CUDA);
+    input.reshape_({1, 1, 4});
+
+    auto col = input.im2col1D(Size1D{2}, Size1D{1}, Size1D{1});
+
+    EXPECT_THAT(col.shape(), ElementsAre(5, 2));
+    EXPECT_THAT(col.toList(), ElementsAre(0,1, 1,2, 2,3, 3,4, 4,0));
+
+    auto r = col.col2im1D(input.shape(), Size1D{2}, Size1D{1}, Size1D{1});
+
+    EXPECT_EQ(r.shape(), input.shape());
+    EXPECT_THAT(r.toList(), ElementsAre(2, 4, 6, 8));
+  }
+}

@@ -87,3 +87,5 @@ TEST(TEST_Module, batchNorm2d) {
   EXPECT_FLOAT_VEC_NEAR(runningVar.data().toList(),
                         {5.15714, 5.15714, 5.15714});
 }
+
+

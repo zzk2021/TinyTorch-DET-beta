@@ -67,6 +67,18 @@ __device__ __nv_bfloat16 htanh(__nv_bfloat16 a) {
 }
 #endif
 
+struct OpCudaAssign {
+    __device__ float operator()(const float a, const float b) const {
+        return b;
+    }
+     __device__ float operator()(const half a, const half b) const {
+        return b;
+    }
+     __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+        return b;
+    }
+};
+
 struct OpCudaAdd {
   __device__ float operator()(const float a, const float b) const {
     return a + b;
@@ -1129,6 +1141,45 @@ __global__ void kIm2Col(T * ret, const T * t, int32_t batch,
   }
 }
 
+template<typename T>
+__global__ void kIm2Col1D(T* col_data,
+                         const T* im_data,
+                         int32_t batch,
+                         int32_t channels,
+                         int32_t length,
+                         int32_t outLength,
+                         int32_t kernel_size,
+                         int32_t stride,
+                         int32_t padding,
+                         int32_t im_stride,
+                         int32_t colH,
+                         int32_t colW) {
+    const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    const int32_t totalElements = batch * outLength * channels * kernel_size;
+
+    if (index < totalElements) {
+        const int32_t kl = index % kernel_size;
+        const int32_t c = (index / kernel_size) % channels;
+        const int32_t l = (index / (kernel_size * channels)) % outLength;
+        const int32_t n = index / (kernel_size * channels * outLength);
+
+        const int32_t imPos = l * stride + kl - padding;
+
+        const int32_t colIdx = n * outLength + l;
+        const int32_t colWIdx = c * kernel_size + kl;
+
+        T value = static_cast<T>(0);
+        if (imPos >= 0 && imPos < length) {
+
+            const int32_t imOffset = n * (channels * im_stride)
+                                   + c * im_stride
+                                   + imPos;
+            value = im_data[imOffset];
+        }
+
+        col_data[colIdx * colW + colWIdx] = value;
+    }
+}
 
 
 template<typename T = float>
@@ -1169,7 +1220,47 @@ __global__ void kCol2Im(T* ret, const T* t, int32_t batch,
     ret[index] = value;
   }
 }
+template<typename T>
+__global__ void kCol2Im1D(T* grad_input,
+                         const T* grad_col,
+                         int32_t batch,
+                         int32_t channels,
+                         int32_t length,
+                         int32_t outLength,
+                         int32_t kernel_size,
+                         int32_t stride,
+                         int32_t padding,
+                         int32_t colW) {
+  const int32_t index = blockIdx.x * blockDim.x + threadIdx.x;
+  const int32_t totalElements = batch * channels * length;
 
+  if (index < totalElements) {
+    const int32_t l = index % length;         // 输入长度位置
+    const int32_t c = (index / length) % channels; // 通道索引
+    const int32_t n = index / (length * channels); // 批次索引
+
+    T value = 0.0f;
+
+    for (int32_t kl = 0; kl < kernel_size; ++kl) {
+
+      const int32_t imPos = l + padding - kl;
+
+      if (imPos % stride == 0) {
+        const int32_t outPos = imPos / stride;
+
+        if (outPos >= 0 && outPos < outLength) {
+
+          const int32_t colIdx = n * outLength + outPos;
+          const int32_t colWIdx = c * kernel_size + kl;
+
+          value += grad_col[colIdx * colW + colWIdx];
+        }
+      }
+    }
+
+    grad_input[index] = value;
+  }
+}
 __global__ void kDot(float* ret, const float* a, const float* b, int n) {
   extern __shared__ float sharedData[];
 

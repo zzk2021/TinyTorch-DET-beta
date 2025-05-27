@@ -1272,9 +1272,8 @@ std::vector<TensorImpl> FuncBatchNorm::backward(const TensorImpl& grad) {
 
 TensorImpl FuncBCELoss::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
-  auto p = inputs[0]->data().clamp(eps_, 1 - eps_);
-  auto y = inputs[1]->data();
-  auto ret = 0 - (y * TensorImpl::log(p) + (1 - y) * TensorImpl::log(1 - p));
+  auto ret = 0 - (inputs[1]->data() * TensorImpl::log(inputs[0]->data().clamp(eps_, 1 - eps_)) +
+          (1.0f - inputs[1]->data()) * TensorImpl::log((1.0f - inputs[0]->data()).clamp(eps_, 1 - eps_)));
   switch (reduction_) {
     case MEAN:
       return ret.mean();

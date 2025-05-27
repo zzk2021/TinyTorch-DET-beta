@@ -363,7 +363,7 @@ class YoloLoss : public nn::Module {
 // Training settings
 struct TrainArgs {
   // input batch size for training (default: 64)
-  static constexpr int32_t batchSize = 2;
+  static constexpr int32_t batchSize = 4;
 
   // input batch size for testing (default: 1000)
   static constexpr int32_t testBatchSize = 2;

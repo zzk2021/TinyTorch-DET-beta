@@ -20,7 +20,7 @@ add_executable(${PROJECT_NAME}
         test_optimizer.cpp
         test_tensorimpl.cpp
         test_cuda_kernel.cpp
-        test_cuda_speed.cpp
+        test_cuda_benchmark.cpp
         test_net.cpp
 )
 target_include_directories(${PROJECT_NAME} PRIVATE

@@ -474,48 +474,48 @@ void TensorOpsCPU::fillRandBernoulli_(TensorImpl& t, float p) {
 }
 
 std::pair<TensorImpl, TensorImpl> TensorOpsCPU::from_mask(const TensorImpl& a,
-                                   const TensorImpl& b) {
+                                                          const TensorImpl& b) {
 
-    const int stride = b.numel();
-    const int n = a.numel();
-    assert(b.shape().size() <= a.shape().size());
-    TensorImpl mask;
-    if (a.shape() != b.shape()){
-        for (int i = 0; i < a.shape().size(); ++i) {
-            int dim_mask = (i < a.shape().size() - b.shape().size())
-                    ? 1 : b.shape()[i - (a.shape().size() - b.shape().size())];
-            int dim_target = a.shape()[i];
-            if (dim_mask != 1 && dim_mask != dim_target) {
-                assert(true);
-            }
-        }
-        mask = TensorImpl::zerosLike(a,a.device(),a.type());
-        broadcastImpl<OpCpuAssign>(mask, a, b);
-    }else{
-        mask = b;
+  const int stride = b.numel();
+  const int n = a.numel();
+  assert(b.shape().size() <= a.shape().size());
+  TensorImpl mask;
+  if (a.shape() != b.shape()){
+    for (int i = 0; i < a.shape().size(); ++i) {
+      int dim_mask = (i < a.shape().size() - b.shape().size())
+                         ? 1 : b.shape()[i - (a.shape().size() - b.shape().size())];
+      int dim_target = a.shape()[i];
+      if (dim_mask != 1 && dim_mask != dim_target) {
+        assert(true);
+      }
     }
+    mask = TensorImpl::zerosLike(a,a.device(),a.type());
+    broadcastImpl<OpCpuAssign>(mask, a, b);
+  }else{
+    mask = b;
+  }
 
-    std::vector<int32_t> out_indices;
-    int32_t count = 0;
-    for (size_t i = 0; i < mask.numel(); ++i) {
-        if (mask.data()[i] != 0.0f) ++count;
-    }
-    TensorImpl result = TensorImpl::shape({count}, a.device_, a.type_);
-    out_indices.clear();
-    out_indices.reserve(count);
-    int32_t index = 0;
+  std::vector<int32_t> out_indices;
+  int32_t count = 0;
+  for (size_t i = 0; i < mask.numel(); ++i) {
+    if (mask.data()[i] != 0.0f) ++count;
+  }
+  TensorImpl result = TensorImpl::shape({count}, a.device_, a.type_);
+  out_indices.clear();
+  out_indices.reserve(count);
+  int32_t index = 0;
 
-    std::vector<float> indices;
-    indices.resize(count);
-    for (int32_t i = 0; i < mask.numel(); ++i) {
-        if (mask.data()[i] != 0.0f) {
-            result.data_[index] = a.data_[i];
-            indices[index] = static_cast<float>(i);
-            ++index;
-        }
+  std::vector<float> indices;
+  indices.resize(count);
+  for (int32_t i = 0; i < mask.numel(); ++i) {
+    if (mask.data()[i] != 0.0f) {
+      result.data_[index] = a.data_[i];
+      indices[index] = static_cast<float>(i);
+      ++index;
     }
-    TensorImpl indices_t =  TensorImpl(indices);
-    return {result, indices_t};
+  }
+  TensorImpl indices_t =  TensorImpl(indices);
+  return {result, indices_t};
 }
 
 TensorImpl TensorOpsCPU::from_mask_backward(const TensorImpl& grad,

@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
   //demo_module();
   //demo_optim();
   //demo_mnist();
- // demo_yolov3();
+  //demo_yolov3();
   demo_cifar10();
   return 0;
 }

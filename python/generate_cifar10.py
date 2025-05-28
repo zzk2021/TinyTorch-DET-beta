@@ -33,7 +33,7 @@ for i, (img, label) in enumerate(dataset):
 train_samples, val_samples = train_test_split(all_samples, test_size=0.1, random_state=42)
 # Step 5: 写入 anno 文件，并在第一行写入类别数量
 with open('E:\data\cifar10/train_annotations.txt', 'w') as f_train, \
-        open('E:\data\cifar10/val_annotations.txt', 'w') as f_val:
+        open('E:\data\cifar10/test_annotations.txt', 'w') as f_val:
 
     # 写入类别数量作为第一行
     f_train.write(f'{num_classes}\n')
@@ -49,4 +49,4 @@ with open('E:\data\cifar10/train_annotations.txt', 'w') as f_train, \
 
 print("✅ 训练集和验证集注解文件已生成，并在第一行列出类别数量：")
 print(" - E:\data\cifar10/train_annotations.txt")
-print(" - E:\data\cifar10/val_annotations.txt")
+print(" - E:\data\cifar10/test_annotations.txt")

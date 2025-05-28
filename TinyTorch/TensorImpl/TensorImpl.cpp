@@ -834,6 +834,11 @@ TensorImpl TensorImpl::exp(const TensorImpl &t) {
   return t.ops_->exp(t);
 }
 
+TensorImpl TensorImpl::abs(const TensorImpl &t) {
+  TENSOR_CHECK_EMPTY_RET(t, {});
+  return t.ops_->abs(t);
+}
+
 TensorImpl TensorImpl::log(const TensorImpl &t) {
   TENSOR_CHECK_EMPTY_RET(t, {});
   return t.ops_->log(t);

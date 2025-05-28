@@ -295,6 +295,8 @@ Tensor Tensor::sum() const { return Function::sum(*this); }
 
 Tensor Tensor::mean() const { return Function::mean(*this); }
 
+Tensor Tensor::var() const { return Function::pow((*this - Function::mean(*this)) , 2).mean() ; }
+
 Tensor Tensor::squeeze(int32_t dim) const {
   return Function::squeeze(*this, dim);
 }

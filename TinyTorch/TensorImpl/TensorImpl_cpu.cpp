@@ -828,6 +828,8 @@ TensorImpl TensorOpsCPU::minimum(const TensorImpl& a, const float& b) {
   return opPair<OpCpuMin>(a, b);
 }
 
+void TensorOpsCPU::abs_(TensorImpl& t) { opSingle_<OpCpuAbs_>(t); }
+
 void TensorOpsCPU::sin_(TensorImpl& t) { opSingle_<OpCpuSin_>(t); }
 
 void TensorOpsCPU::cos_(TensorImpl& t) { opSingle_<OpCpuCos_>(t); }
@@ -839,6 +841,10 @@ void TensorOpsCPU::tanh_(TensorImpl& t) { opSingle_<OpCpuTanh_>(t); }
 void TensorOpsCPU::exp_(TensorImpl& t) { opSingle_<OpCpuExp_>(t); }
 
 void TensorOpsCPU::log_(TensorImpl& t) { opSingle_<OpCpuLog_>(t); }
+
+TensorImpl TensorOpsCPU::abs(const TensorImpl& t) {
+  return opSingle<OpCpuAbs>(t);
+}
 
 TensorImpl TensorOpsCPU::sin(const TensorImpl& t) {
   return opSingle<OpCpuSin>(t);
@@ -1344,15 +1350,30 @@ void TensorOpsCPU::gemm(float* c, const float * a, const float * b, int32_t m,
   }
 }
 
-TensorImpl TensorOpsCPU::leakyrelu(const TensorImpl& a, float rate) {
+
+std::pair<TensorImpl, TensorImpl> TensorOpsCPU::leakyrelu(const TensorImpl& a, float rate) {
+    TensorImpl ret = TensorImpl::shape(a.shape_, a.device_, a.type_);
+    // in cpu, we didn't apply other type to data, only float32
+    TensorImpl mask = TensorImpl::shape(a.shape_, a.device_, Dtype::float32);
+    int N = a.numel();
+    for (int i = 0; i < N; ++i) {
+        bool condition = a.data_[i] > 0.0f;
+        ret.data_[i] = condition ? a.data_[i] : a.data_[i] * rate;
+        mask.data_[i] = condition;
+    }
+    return {ret, mask};
+}
+
+TensorImpl TensorOpsCPU::leakyrelu_backward(const TensorImpl&
+        a, const TensorImpl& mask, float rate) {
     TensorImpl ret = TensorImpl::shape(a.shape_, a.device_, a.type_);
     int N = a.numel();
     for (int i = 0; i < N; ++i) {
-        ret.data_[i] = (a.data_[i] >= 0.0f) ? a.data_[i] : a.data_[i] * rate;
+        float mask_float = mask.data_[i] ? 1.0f : rate;
+        ret.data_[i] = a.data_[i] * mask_float;
     }
     return ret;
 }
-
 
 TensorImpl TensorOpsCPU::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim_){
 

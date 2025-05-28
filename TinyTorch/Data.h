@@ -97,9 +97,9 @@ class Normalize : public Transform {
   float std_;
 };
 
-class Resize : public Transform {
+class ResizeToTensor : public Transform {
  public:
-  Resize(Shape shape)
+  ResizeToTensor(Shape shape)
       : shape_(std::move(shape)){}
 
   #ifdef USE_OPENCV
@@ -144,6 +144,27 @@ class DatasetMNIST : public Dataset {
   int32_t width_ = 0;
   size_t size_ = 0;
 
+  std::shared_ptr<transforms::Transform> transform_;
+};
+class DatasetCIFAR10 : public Dataset {
+ public:
+  enum CIFAR10DataType {
+    TRAIN,
+    TEST,
+  };
+  DatasetCIFAR10(const std::string& annotation_path, CIFAR10DataType type,
+              const std::shared_ptr<transforms::Transform>& transform);
+  size_t size() const override { return size_; }
+  std::vector<Tensor> getItem(size_t idx) override;
+  int32_t getNumClass() const { return num_classes_; }
+ private:
+  std::vector<std::vector<float>> images_;
+  std::vector<float> labels_;
+  int32_t height_ = 0;
+  int32_t width_ = 0;
+  size_t size_ = 0;
+  int32_t num_classes_;
+  std::vector<std::string> annotation_lines_;
   std::shared_ptr<transforms::Transform> transform_;
 };
 

@@ -8,6 +8,7 @@ using namespace TinyTorch;
 
 class BasicBlock : public nn::Module {
   public:
+
     BasicBlock(int32_t inplanes,std::vector<int32_t> planes):
      conv1(inplanes, planes[0], 1, 1, 0, false),
      bn1(planes[0]),
@@ -17,7 +18,9 @@ class BasicBlock : public nn::Module {
       registerModules(
               {conv1,bn1,
                conv2,bn2 });
+      initialize_weights();
      }
+    std::string name() const override { return "BasicBlock"; }
   Tensor forward(Tensor &x) override {
       auto residual = x;
       x = conv1(x);
@@ -25,15 +28,24 @@ class BasicBlock : public nn::Module {
       x = Function::leakyrelu(x, 0.1);
       x = conv2(x);
       x = bn2(x);
-      x = Function::leakyrelu(x, 0.1);
       x = x + residual;
-      return x;
+      return Function::leakyrelu(x,0.1);
     }
  private:
   nn::Conv2D conv1;
   nn::BatchNorm2D bn1;
   nn::Conv2D conv2;
   nn::BatchNorm2D bn2;
+  void initialize_weights() {
+        for (auto& module : subModules_) {
+                float gain = sqrt(2.0 / (1 + pow(0.1, 2)));
+                auto derivedPtr = dynamic_cast<nn::Conv2D*>(&module.get());
+                if (derivedPtr) {
+                    LOGD("init successful");
+                    TinyTorch::nn::Init::kaimingUniform(derivedPtr->weights(), gain, TinyTorch::nn::FanMode::FAN_IN);
+                }
+        }
+    }
 };
 
 class DarkNet : public nn::Module {
@@ -54,16 +66,37 @@ class DarkNet : public nn::Module {
         registerModules({conv1, bn1,layer1, layer2, layer3, layer4, layer5});
         initialize_weights();
     }
-
+     std::string name() const override { return "DarkNet"; }
     std::vector<Tensor> forward(Tensor &x, bool l) override {
         x = conv1(x);
         x = bn1(x);
         x = Function::relu(x);
         x = layer1(x);
+
+         LOGD("*********DarkNet layer1");
+      LOGD("mean %f",x.mean().toList()[0]);
+      LOGD("var %f",x.var().toList()[0]);
+
         x = layer2(x);
+
+         LOGD("*********DarkNet layer2");
+      LOGD("mean %f",x.mean().toList()[0]);
+      LOGD("var %f",x.var().toList()[0]);
+
         Tensor out3 = layer3(x);
+           LOGD("*********DarkNet layer3");
+            LOGD("mean %f",out3.mean().toList()[0]);
+            LOGD("var %f",out3.var().toList()[0]);
+            LOGD("max %f",(out3.data().ops()->max(out3.data())).toList()[0]);
+            LOGD("min %f",(out3.data().ops()->min(out3.data())).toList()[0]);
         Tensor out4 = layer4(out3);
+
         Tensor out5 = layer5(out4);
+
+
+            LOGD("mean %f",out4.mean().toList()[0]);
+            LOGD("var %f",out4.var().toList()[0]);
+            LOGD("%f",out5.mean().toList()[0]);
 
         return {out3, out4, out5};
     }
@@ -83,6 +116,8 @@ class DarkNet : public nn::Module {
         seq.pushBack(
             nn::Conv2D(inplanes, planes[1], 3, 2, 1, false)
         );
+        float gain = sqrt(2.0 / (1 + pow(0.1, 2)));
+        TinyTorch::nn::Init::kaimingUniform(dynamic_cast<nn::Conv2D*>(&seq[0])->weights(), gain, TinyTorch::nn::FanMode::FAN_IN);
         seq.pushBack(
             nn::BatchNorm2D(planes[1])
         );
@@ -99,9 +134,11 @@ class DarkNet : public nn::Module {
 
     void initialize_weights() {
         for (auto& module : subModules_) {
+                float gain = sqrt(2.0 / (1 + pow(0.1, 2)));
                 auto derivedPtr = dynamic_cast<nn::Conv2D*>(&module.get());
                 if (derivedPtr) {
-                    TinyTorch::nn::Init::kaimingUniform(derivedPtr->weights(), std::sqrt(2.f), TinyTorch::nn::FanMode::FAN_OUT);
+                    LOGD("init successful");
+                    TinyTorch::nn::Init::kaimingUniform(derivedPtr->weights(), gain, TinyTorch::nn::FanMode::FAN_IN);
                 }
         }
     }
@@ -138,6 +175,12 @@ class YoloBody : public nn::Module {
             x2_in = Function::upsample(x2_in,2);
             x2_in = Function::concat(x2_in, x2, 1);
             auto out2 = last_layer2(x2_in);
+            LOGD("*********YoloBody");
+            LOGD("%f",out0.mean().toList()[0]);
+            LOGD("%f",out0.var().toList()[0]);
+            LOGD("%f",out1.mean().toList()[0]);
+            LOGD("%f",out2.mean().toList()[0]);
+
             return {out0, out1, out2};
         }
 
@@ -227,12 +270,12 @@ class YoloLoss : public nn::Module {
             auto prediction = input.reshape({bs,
                                          static_cast<int>(anchors_mask_[l].size()),
                                          bbox_attrs_, in_h, in_w});
-            auto x = Function::sigmoid(prediction[{{},{},{0,1},{},{}}]);
-            auto y = Function::sigmoid(prediction[{{},{},{1,2},{},{}}]);
+            auto x = prediction[{{},{},{0,1},{},{}}];
+            auto y = prediction[{{},{},{1,2},{},{}}];
             auto w = prediction[{{},{},{2,3},{},{}}];
             auto h = prediction[{{},{},{3,4},{},{}}];
-            auto conf = Function::sigmoid(prediction[{{},{},{4,5},{},{}}]);
-            auto pred_cls = Function::sigmoid(prediction[{{},{},{5,-1},{},{}}]);
+            auto conf = prediction[{{},{},{4,5},{},{}}];
+            auto pred_cls = prediction[{{},{},{5,-1},{},{}}];
             auto [y_true, noobj_mask, box_loss_scale, obj_mask, n] = get_target_(l, targets, scaled_anchors, in_h, in_w);
             Tensor y_true_t = Tensor(y_true, false);
             Tensor box_loss_scale_t =  Tensor(box_loss_scale, false);
@@ -244,22 +287,21 @@ class YoloLoss : public nn::Module {
             y_true_t.to(input.device());
             noobj_mask_t.to(input.device());
             if (n != 0){
-                auto loss_x  = (Function::bceLoss(x.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{0,1}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
-                auto loss_y  = (Function::bceLoss(y.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{1,2}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
+                auto loss_x  = (Function::bceLossWithSigmoid(x.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{0,1}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
+                auto loss_y  = (Function::bceLossWithSigmoid(y.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{1,2}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
                 auto loss_w  = (Function::mseLoss(w.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{2,3}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
                 auto loss_h  = (Function::mseLoss(h.squeeze()[obj_mask_t], y_true_t[{{},{},{},{},{3,4}}].squeeze()[obj_mask_t], TinyTorch::NONE) * box_loss_scale_t[obj_mask_t]).mean();
                 auto loss_loc = (loss_x + loss_y + loss_h + loss_w) * 0.1;
-                auto loss_cls = Function::bceLoss(Tensor(pred_cls.data().permute({0,1,3,4,2}), true)[obj_mask_t],y_true_t[{{},{},{},{},{5,-1}}][obj_mask_t], TinyTorch::MEAN);
+                auto loss_cls = Function::bceLossWithSigmoid(Tensor(pred_cls.data().permute({0,1,3,4,2}), true)[obj_mask_t],y_true_t[{{},{},{},{},{5,-1}}][obj_mask_t], TinyTorch::MEAN);
                 loss  += loss_loc * box_ratio_ + loss_cls * cls_ratio_;
                 LOGD("loss_loc: %f , loss_cls:%f",loss_loc.toList()[0],loss_cls.toList()[0]);
             }
-            auto loss_conf   = (Function::bceLoss(conf.squeeze(), obj_mask_t, TinyTorch::NONE)[noobj_mask_t + obj_mask_t]).mean();
-            if (std::isnan(loss_conf.toList()[0])) {
+            auto loss_conf   = (Function::bceLossWithSigmoid(conf.squeeze(), obj_mask_t, TinyTorch::NONE)[noobj_mask_t + obj_mask_t]).mean();
+            if (loss_conf.toList().size() == 0 || std::isnan(loss_conf.toList()[0])) {
               LOGW("Warning: loss_conf is NaN, skipping this batch.");
             }
             else
               loss  += loss_conf * obj_ratio_;
-            LOGD("loss_conf: %f",loss_conf.toList()[0]);
            }
            return loss;
         }
@@ -317,6 +359,7 @@ class YoloLoss : public nn::Module {
           }
 
           int M = batch_target.size();
+
           Array2d anchor_shapes(M, std::vector<float>(4, 0.0f));
           for (size_t i = 0; i < M; ++i) {
             anchor_shapes[i][2] = anchors[i][0]; // w
@@ -329,12 +372,17 @@ class YoloLoss : public nn::Module {
           }
 
           auto best_ns = FindBestAnchors(CalculateIOU(gt_box, anchor_shapes));
+
+
           for (int t=0;t<best_ns.size();t+=1){
             auto best_n = best_ns[t];
-
             if (std::find(anchors_mask_[l].begin(), anchors_mask_[l].end(), best_n) == anchors_mask_[l].end()) {
                 continue;
             }
+            if (best_n < 0 || best_n >= static_cast<int>(anchors.size())) {
+                continue;
+            }
+
             int k = std::distance(anchors_mask_[l].begin(),
                           std::find(anchors_mask_[l].begin(), anchors_mask_[l].end(), best_n));
             int i = static_cast<int>(std::floor(batch_target[t][0]));
@@ -354,16 +402,12 @@ class YoloLoss : public nn::Module {
         }
         return std::make_tuple(y_true, noobj_mask, box_loss_scale, obj_mask, n);
       }
-
-
 };
-
-
 
 // Training settings
 struct TrainArgs {
   // input batch size for training (default: 64)
-  static constexpr int32_t batchSize = 4;
+  static constexpr int32_t batchSize = 2;
 
   // input batch size for testing (default: 1000)
   static constexpr int32_t testBatchSize = 2;
@@ -372,7 +416,7 @@ struct TrainArgs {
   static constexpr int32_t epochs = 1;
 
   // learning rate (default: 1.0)
-  static constexpr float lr = 0.001f;
+  static constexpr float lr = 0.01f;
 
   // Learning rate step gamma (default: 0.7)
   static constexpr float gamma = 0.7f;
@@ -387,7 +431,7 @@ struct TrainArgs {
   static constexpr unsigned long seed = 1;
 
   // how many batches to wait before logging training status
-  static constexpr int32_t logInterval = 10;
+  static constexpr int32_t logInterval = 1;
 
   // For Saving the current Model
   static constexpr bool saveModel = false;
@@ -417,7 +461,6 @@ void train(TrainArgs &args, nn::Module &model, nn::Module &loss_fun, Device devi
     optimizer.zeroGrad();
     auto output = model.forward(data, true);
     output.push_back(target);
-    auto l = target.toList();
     auto loss = loss_fun.forward(output);
     loss.backward();
     optimizer.step();
@@ -464,6 +507,7 @@ void test(nn::Module &model, nn::Module &loss_fun, Device device, data::DataLoad
       testLoss, correct, total, 100. * correct / (float)total, elapsed);
 }
 
+
 void demo_yolov3() {
   LOGD("demo_yolov3 ...");
   Timer timer;
@@ -486,7 +530,7 @@ void demo_yolov3() {
   LOGD("Train with device: %s", useCuda ? "CUDA" : "CPU");
 
   auto transform = std::make_shared<data::transforms::Compose>(
-          data::transforms::Resize(args.input_shape),
+          data::transforms::ResizeToTensor(args.input_shape),
           data::transforms::Normalize(0.5f, 0.2f)
       );
 
@@ -505,12 +549,14 @@ void demo_yolov3() {
   auto testDataloader = data::DataLoader(testDataset, args.testBatchSize, true);
   auto darknet = DarkNet();
   darknet.to(Device::CUDA);
+  darknet.train();
   auto model = YoloBody({3,3,3},
                         trainDataset->getNumClass(), darknet,false);
   model.to(device);
-
+  std::cout << model.getTopologyText() << std::endl;
   auto loss = YoloLoss(trainDataset->getNumClass(), args.input_shape, args.anchors);
   loss.to(device);
+  std::vector<Tensor *> ret;
   auto optimizer = optim::Adam(model.parameters(), args.lr);
   auto scheduler = optim::lr_scheduler::StepLR(optimizer, 1, args.gamma);
 

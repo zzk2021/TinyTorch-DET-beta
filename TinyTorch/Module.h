@@ -23,7 +23,7 @@ class Module {
   virtual std::vector<Tensor *> states();
   virtual void resetParameters();
   virtual void zeroGrad();
-
+  virtual std::string name() const { return "Module"; }
   virtual Tensor forward(Tensor &x) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2) { return {}; }
   virtual Tensor forward(Tensor &x1, Tensor &x2, Tensor &x3) { return {}; }
@@ -34,7 +34,6 @@ class Module {
   Tensor operator()(Args &&...args) {
     return forward(std::forward<Args>(args)...);
   }
-
   void registerModules(
       const std::vector<std::reference_wrapper<Module>> &modules) {
     subModules_.reserve(modules.size());
@@ -42,26 +41,32 @@ class Module {
       subModules_.emplace_back(module.get());
     }
   }
-
   void registerModule(const std::reference_wrapper<Module> &module) {
     subModules_.push_back(module);
   }
-
   void to(Device device);
   void to(Dtype T);
   void eval() { train(false); }
-
   void train(bool mode = true) { setTraining(mode); }
-
+    std::string getTopologyText() const {
+            std::stringstream ss;
+            getTopologyTextHelper(ss, 0);
+            return ss.str();
+        }
+   virtual void getTopologyTextHelper(std::stringstream& ss, int depth) const;
  protected:
+
   virtual void setTraining(bool mode) { training_ = mode; }
 
   bool training_ = true;
   std::vector<std::reference_wrapper<Module>> subModules_;
+
 };
 
 class Sequential : public Module {
  public:
+
+  std::string name() const override { return "Sequential"; }
   struct Slice {
     int start;
     int end;
@@ -122,6 +127,7 @@ class Sequential : public Module {
     }
     return result;
   }
+
  private:
   void setTraining(bool mode) override;
   template <typename First, typename Second, typename... Rest>
@@ -131,6 +137,12 @@ class Sequential : public Module {
   }
   void pushBack() {}
   std::vector<std::shared_ptr<Module>> modules_;
+    void getTopologyTextHelper(std::stringstream& ss, int depth) const override {
+        ss << std::string(depth * 2, ' ') << "|--Sequential" << std::endl;
+        for (const auto& module : modules_) {
+            module->getTopologyTextHelper(ss, depth + 1); // 合法：派生类访问基类 protected 方法
+        }
+    }
 };
 
 
@@ -146,6 +158,7 @@ class FlashSelfAttention : public Module {
 
 class Linear : public Module {
  public:
+   std::string name() const override { return "Linear"; }
   Linear(int32_t inFeatures, int32_t outFeatures, bool bias = true);
   Tensor forward(Tensor &input) override;
   std::vector<Tensor *> parameters() override;
@@ -166,6 +179,7 @@ class Linear : public Module {
 
 class Flatten : public Module {
  public:
+    std::string name() const override { return "Flatten"; }
   explicit Flatten(int32_t startDim = 0, int32_t endDim = -1)
       : startDim_(startDim), endDim_(endDim) {}
 
@@ -178,11 +192,13 @@ class Flatten : public Module {
 
 class Relu : public Module {
  public:
+    std::string name() const override { return "Relu"; }
   Tensor forward(Tensor &input) override;
 };
 
 class LeakyRelu : public Module {
  public:
+    std::string name() const override { return "LeakyRelu"; }
   explicit LeakyRelu(float rate=0.1) : rate_(rate) {}
   Tensor forward(Tensor &input) override;
  private:
@@ -191,6 +207,7 @@ class LeakyRelu : public Module {
 
 class Dropout : public Module {
  public:
+    std::string name() const override { return "Dropout"; }
   explicit Dropout(float p = 0.5f) : p_(p) {}
 
   Tensor forward(Tensor &x) override;
@@ -201,6 +218,7 @@ class Dropout : public Module {
 
 class Softmax : public Module {
  public:
+    std::string name() const override { return "Softmax"; }
   explicit Softmax(int32_t dim) : dim_(dim) {}
 
   Tensor forward(Tensor &x) override;
@@ -211,6 +229,7 @@ class Softmax : public Module {
 
 class LogSoftmax : public Module {
  public:
+    std::string name() const override { return "LogSoftmax"; }
   explicit LogSoftmax(int32_t dim) : dim_(dim) {}
 
   Tensor forward(Tensor &x) override;
@@ -221,6 +240,7 @@ class LogSoftmax : public Module {
 
 class MaxPool2D : public Module {
  public:
+     std::string name() const override { return "MaxPool2D"; }
   explicit MaxPool2D(Size2D kernelSize,
                      std::optional<Size2D> stride = std::nullopt,
                      Size2D padding = 0)
@@ -239,6 +259,7 @@ class MaxPool2D : public Module {
 
 class Conv2D : public Module {
  public:
+    std::string name() const override { return "Conv2D"; }
   Conv2D(int32_t inFeatures, int32_t outFeatures, Size2D kernelSize,
          Size2D stride = 1, Size2D padding = 0, bool bias = true,
          Dtype fw_type = Dtype::float32,
@@ -269,6 +290,7 @@ class Conv2D : public Module {
 
 class Conv1D : public Module {
  public:
+    std::string name() const override { return "Conv1D"; }
   Conv1D(int32_t inFeatures, int32_t outFeatures, Size1D kernelSize,
          Size1D stride = 1, Size1D padding = 0, bool bias = true);
   Tensor forward(Tensor &input) override;
@@ -293,6 +315,7 @@ class Conv1D : public Module {
 
 class BatchNorm2D : public Module {
  public:
+     std::string name() const override { return "BatchNorm2D"; }
   explicit BatchNorm2D(int32_t numFeatures, float eps = 1e-5,
                        float momentum = 0.1f, bool affine = true,
                        bool trackRunningStats = true);

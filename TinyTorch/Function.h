@@ -52,6 +52,7 @@ enum FunctionType {
   Function_LayerNorm,
   Function_MSELoss,
   Function_BCELoss,
+  Function_BCELossWithSigmoid,
   Function_NLLLoss,
   // object detection support
   OBJDECT_EXPLORE_FUNCTIONTYPE()
@@ -80,7 +81,7 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor mean(const Tensor& a);
   static Tensor max(const Tensor& a, int32_t dim_ ,bool keepdim);
   static Tensor relu(const Tensor& input);
-  static Tensor leakyrelu(const Tensor& input, float rate);
+  static Tensor leakyrelu(const Tensor& input, float rate = 0.1);
   static Tensor flatten(const Tensor& input, int32_t startDim, int32_t endDim);
   static Tensor upsample(const Tensor& input, int32_t scale_factor);
   static Tensor unflatten(const Tensor& input, int32_t dim,
@@ -124,6 +125,9 @@ class Function : public std::enable_shared_from_this<Function> {
                         LossReduction reduction = MEAN);
 
   static Tensor bceLoss(const Tensor& input, const Tensor& target,
+                        LossReduction reduction = MEAN);
+
+  static Tensor bceLossWithSigmoid(const Tensor& input, const Tensor& target,
                         LossReduction reduction = MEAN);
 
   virtual ~Function() = default;
@@ -200,19 +204,23 @@ class FuncConCat : public Function {
 
 class FuncSlice : public Function {
  public:
-    FuncSlice(std::vector<int> start, std::vector<int> end)
-     : start_(std::move(start)), end_(std::move(end)){}
+    FuncSlice(Shape a_shape, std::vector<int> start, std::vector<int> end)
+     : a_shape_(a_shape), start_(std::move(start)), end_(std::move(end)){}
   DEFINE_FUNCTION_MEMBERS(Function_Slice)
  private:
+  Shape a_shape_;
   std::vector<int> start_;
   std::vector<int> end_;
 };
 
 class FuncMask : public Function {
  public:
+    FuncMask(Shape a_shape)
+     : a_shape_(std::move(a_shape)){}
   DEFINE_FUNCTION_MEMBERS(Function_Mask)
  private:
   TensorImpl indice_;
+  Shape a_shape_;
 };
 
 class FuncSub : public Function {
@@ -267,6 +275,17 @@ class FuncMean : public Function {
 class FuncMax : public Function {
  public:
   FuncMax(int32_t dim, bool keep_dim)
+    : dim_(dim), keep_dim_(keep_dim) {}
+  DEFINE_FUNCTION_MEMBERS(Function_Max)
+ private:
+  int32_t dim_;
+  bool keep_dim_;
+  TensorImpl maxIndices_;
+};
+
+class FuncMin : public Function {
+ public:
+  FuncMin(int32_t dim, bool keep_dim)
     : dim_(dim), keep_dim_(keep_dim) {}
   DEFINE_FUNCTION_MEMBERS(Function_Max)
  private:
@@ -476,6 +495,16 @@ class FuncMSELoss : public Function {
  private:
   LossReduction reduction_;
 };
+
+class FuncBCELossWithSigmoid : public Function {
+ public:
+  explicit FuncBCELossWithSigmoid(LossReduction reduction) : reduction_(reduction) {}
+  DEFINE_FUNCTION_MEMBERS(Function_BCELossWithSigmoid)
+ private:
+  LossReduction reduction_;
+  float eps_ = 1e-8;
+};
+
 
 class FuncBCELoss : public Function {
  public:

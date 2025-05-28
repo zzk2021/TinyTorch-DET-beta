@@ -869,6 +869,8 @@ TensorImpl TensorOpsCUDA::minimum(const TensorImpl& a, const float& b) {
   return opPair<OpCudaMin>(a, b);
 }
 
+void TensorOpsCUDA::abs_(TensorImpl& t) { opSingle_<OpCudaSin_>(t); }
+
 void TensorOpsCUDA::sin_(TensorImpl& t) { opSingle_<OpCudaSin_>(t); }
 
 void TensorOpsCUDA::cos_(TensorImpl& t) { opSingle_<OpCudaCos_>(t); }
@@ -887,6 +889,10 @@ TensorImpl TensorOpsCUDA::sin(const TensorImpl& t) {
 
 TensorImpl TensorOpsCUDA::cos(const TensorImpl& t) {
   return opSingle<OpCudaCos>(t);
+}
+
+TensorImpl TensorOpsCUDA::abs(const TensorImpl& t) {
+  return opSingle<OpCudaAbs>(t);
 }
 
 TensorImpl TensorOpsCUDA::sqrt(const TensorImpl& t) {
@@ -1630,37 +1636,75 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::split(
   return {ret0, ret1};
 }
 
-TensorImpl TensorOpsCUDA::leakyrelu(const TensorImpl& a, float rate){
+std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::leakyrelu(const TensorImpl& a, float rate){
   int32_t threads_per_block = 256;
   int32_t total_elems = a.numel();
   int32_t blocks = (total_elems + threads_per_block - 1) / threads_per_block;
-   auto ret = TensorImpl::shape(a.shape_,a.device_,a.type_);
+  auto ret = TensorImpl::shape(a.shape_,a.device_,a.type_);
+  auto mask = TensorImpl::shape(a.shape_, a.device_, Dtype::int8); // Mask 为布尔类型
 
   //auto ret = a * (a > 0.f) + a * (a <= 0.f) * rate;
   //return ret;
   if (a.type() == Dtype::float32)
-    leaky_relu_kernel<<<blocks, threads_per_block>>>(
-        a.data(),
-        ret.data_,
-        rate,
-        total_elems
-    );
+       leaky_relu_kernel<float><<<blocks, threads_per_block>>>(
+            a.data(),
+            ret.data(),
+            reinterpret_cast<bool*>(mask.data()),
+            rate,
+            total_elems
+        );
   else if (a.type() == Dtype::float16)
-    leaky_relu_kernel<<<blocks, threads_per_block>>>(
-        reinterpret_cast<const half*>(a.data_),
-        reinterpret_cast<half*>(ret.data_),
-        rate,
-        total_elems
-   );
+      leaky_relu_kernel<half><<<blocks, threads_per_block>>>(
+            reinterpret_cast<const half*>(a.data()),
+            reinterpret_cast<half*>(ret.data()),
+            reinterpret_cast<bool*>(mask.data()),
+            rate,
+            total_elems
+        );
   else if (a.type() ==  Dtype::bfloat16)
-    leaky_relu_kernel<<<blocks, threads_per_block>>>(
-        reinterpret_cast<const __nv_bfloat16*>(a.data_),
-        reinterpret_cast<__nv_bfloat16*>(ret.data_),
-        rate,
-        total_elems
-   );
-  cudaDeviceSynchronize();
-  return ret;
+        leaky_relu_kernel<__nv_bfloat16><<<blocks, threads_per_block>>>(
+            reinterpret_cast<const __nv_bfloat16*>(a.data()),
+            reinterpret_cast<__nv_bfloat16*>(ret.data()),
+            reinterpret_cast<bool*>(mask.data()),
+            rate,
+            total_elems
+        );
+  CUDA_KERNEL_CHECK();
+  return {ret,mask};
+}
+
+
+TensorImpl TensorOpsCUDA::leakyrelu_backward(const TensorImpl& a, const TensorImpl& mask, float rate){
+  int32_t threads_per_block = 256;
+  int32_t total_elems = a.numel();
+  int32_t blocks = (total_elems + threads_per_block - 1) / threads_per_block;
+  auto output = TensorImpl::shape(a.shape_,a.device_,a.type_);
+  if (a.type() == Dtype::float32)
+       leaky_relu_backward<float><<<blocks, threads_per_block>>>(
+            a.data(),
+            output.data(),
+            reinterpret_cast<const bool*>(mask.data()),
+            rate,
+            total_elems
+        );
+  else if (a.type() == Dtype::float16)
+      leaky_relu_backward<half><<<blocks, threads_per_block>>>(
+            reinterpret_cast<const half*>(a.data()),
+            reinterpret_cast<half*>(output.data()),
+            reinterpret_cast<const bool*>(mask.data()),
+            rate,
+            total_elems
+        );
+  else if (a.type() ==  Dtype::bfloat16)
+        leaky_relu_backward<__nv_bfloat16><<<blocks, threads_per_block>>>(
+            reinterpret_cast<const __nv_bfloat16*>(a.data()),
+            reinterpret_cast<__nv_bfloat16*>(output.data()),
+            reinterpret_cast<const bool*>(mask.data()),
+            rate,
+            total_elems
+        );
+  CUDA_KERNEL_CHECK();
+  return output;
 }
 
 std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, const TensorImpl& b) {
@@ -1734,13 +1778,7 @@ TensorImpl TensorOpsCUDA::from_mask_backward(
         grad_input.data(),
         totalValid
     );
-
-    cudaDeviceSynchronize();
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err));
-    }
-
+    CUDA_KERNEL_CHECK();
     return grad_input;
 }
 
@@ -2119,6 +2157,9 @@ TensorImpl TensorOpsCUDA::upsample_backward(const TensorImpl& a , int32_t scale_
     printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
   }
   return ret;
+}
+TensorImpl  TensorOpsCUDA::flash_attention_(const TensorImpl& Q, const TensorImpl& K, const TensorImpl& V , int32_t head){
+  throw std::runtime_error("We have not implement in CUDA yet");
 }
 
 const char* curandGetErrorString(curandStatus_t status) {

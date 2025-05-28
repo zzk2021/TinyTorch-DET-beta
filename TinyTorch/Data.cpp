@@ -23,7 +23,7 @@ Tensor Normalize::process(Tensor& input) const {
   return ret;
 }
 
-Tensor Resize::process(cv::Mat& image) const {
+Tensor ResizeToTensor::process(cv::Mat& image) const {
   cv::Mat resized_image;
   cv::resize(image, resized_image, cv::Size(shape_[0],
        shape_[1]), 0, 0, cv::INTER_LINEAR);
@@ -133,7 +133,6 @@ cv::Mat readImage(const std::string& image_path) {
         throw std::runtime_error("Failed to open image file: "
                                  + image_path);
       }
-      cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
       return image;
     #else
       throw std::out_of_range("We only use opencv to read image, "
@@ -191,11 +190,39 @@ std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
   }
   return {image_t, Tensor(labels)};
 }
+
+std::vector<Tensor> DatasetCIFAR10::getItem(size_t idx) {
+  if (idx >= size_) {
+    throw std::out_of_range("Index out of range");
+  }
+  const std::string& line = annotation_lines_[idx];
+  std::istringstream iss(line);
+  std::string image_path;
+  iss >> image_path;
+  cv::Mat original_image = readImage(image_path);
+  Tensor image_t;
+  if (transform_) {
+    image_t = transform_->process(original_image);
+  } else {
+    image_t = Tensor(std::move(TensorImpl(original_image)));
+  }
+  width_ = image_t.shape()[2];
+  height_ = image_t.shape()[1];
+
+  std::string token;
+  float label;
+  while (iss >> token) {
+    std::string value;
+    label = std::stof(token);
+  }
+  return {image_t, Tensor::scalar(label)};
+}
+
+
 DatasetYOLO::DatasetYOLO(
     const std::string& annotation_path, YOLODataType type,
     const std::shared_ptr<transforms::Transform>& transform)
     : transform_(transform){
-
   std::ifstream infile(annotation_path);
   if (!infile.is_open()) {
     throw std::runtime_error("Can't open the file" + annotation_path);
@@ -206,6 +233,32 @@ DatasetYOLO::DatasetYOLO(
     iss >> max_targets_ >> num_classes_;
     if (iss.fail() || max_targets_ <= 0 || num_classes_ <= 0) {
       throw std::runtime_error("invaild max_targets or num_class");
+    }
+  } else {
+    throw std::runtime_error("annotation file is not correct");
+  }
+  while (std::getline(infile, line)) {
+    annotation_lines_.push_back(line);
+  }
+  infile.close();
+  size_ = annotation_lines_.size();
+}
+
+DatasetCIFAR10::DatasetCIFAR10(
+    const std::string& annotation_path, CIFAR10DataType type,
+    const std::shared_ptr<transforms::Transform>& transform)
+    : transform_(transform){
+
+  std::ifstream infile(annotation_path);
+  if (!infile.is_open()) {
+    throw std::runtime_error("Can't open the file" + annotation_path);
+  }
+  std::string line;
+  if (std::getline(infile, line)) {
+    std::istringstream iss(line);
+    iss  >> num_classes_;
+    if (iss.fail() || num_classes_ <= 0) {
+      throw std::runtime_error("invaild  num_class");
     }
   } else {
     throw std::runtime_error("annotation file is not correct");

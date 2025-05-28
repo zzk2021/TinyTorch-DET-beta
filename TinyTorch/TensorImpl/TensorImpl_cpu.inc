@@ -82,6 +82,10 @@ struct OpCpuMin {
   }
 };
 
+struct OpCpuAbs_ {
+  void operator()(float& a) const { a = std::abs(a); }
+};
+
 struct OpCpuSin_ {
   void operator()(float& a) const { a = std::sin(a); }
 };
@@ -104,6 +108,10 @@ struct OpCpuExp_ {
 
 struct OpCpuLog_ {
   void operator()(float& a) const { a = std::log(a); }
+};
+
+struct OpCpuAbs {
+  float operator()(const float a) const { return std::abs(a); }
 };
 
 struct OpCpuSin {

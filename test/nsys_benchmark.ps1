@@ -1,7 +1,7 @@
 ﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 
-$testApp = "..\cmake-build-debug\test\TinyTorch_test.exe"
+$testApp = "..\cmake-build-debug-visual-studio\test\TinyTorch_test.exe"
 
 Write-Host "[INFO] 正在获取所有测试用例..."
 $allTestsRaw = & $testApp --gtest_list_tests
@@ -44,7 +44,7 @@ if ($targetTests.Count -eq 0) {
         Write-Host "**************************************************"
 
         # 构建命令（添加 --trace=cuda）
-        $command = "nsys profile --trace=cuda --output `"$outputName`" --force-overwrite true --stats true `"$testApp`" --gtest_filter=`"$test`""
+        $command = "nsys profile --trace=cuda --cuda-memory-usage=true --output `"$outputName`" --force-overwrite true --stats true `"$testApp`" --gtest_filter=`"$test`""
         Invoke-Expression $command
     }
 }

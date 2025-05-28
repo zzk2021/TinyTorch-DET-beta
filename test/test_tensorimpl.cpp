@@ -19,11 +19,44 @@ using namespace TinyTorch;
 #ifdef USE_OPENCV
 TEST(TEST_TensorImpl, opencv_to_tensor) {
     cv::Mat image = cv::imread("../../doc/ChatGPT_LOGO_512.png", cv::IMREAD_COLOR);
-    cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
-    auto a = TensorImpl(image);
-    auto b = Tensor(std::move(a));
-    auto vec = b.data().toList();
+    cv::Mat resized_image;
+    cv::resize(image, resized_image, cv::Size(96,96), 0, 0, cv::INTER_LINEAR);
 
+    auto a = TensorImpl(resized_image);
+
+    std::vector<float> vec = a.toList();
+    // a.shape() std::vector<int>获取shape 3,H,W
+    //
+    std::vector<int> shape = a.shape();     // [3, H, W]
+    std::vector<int> strides = a.strides(); // [H*W, W, 1]
+    int C = shape[0];
+    int H = shape[1];
+    int W = shape[2];
+
+    for (int h = 0; h < H; ++h) {
+      for (int w = 0; w < W; ++w) {
+        float sum = 0.0f;
+        for (int c = 0; c < C; ++c) {
+          int index = c * strides[0] + h * strides[1] + w * strides[2];
+          sum += vec[index];
+        }
+        float avg = sum / static_cast<float>(C);
+        float clamped_avg = std::clamp(avg, 0.0f, 1.0f);
+        int quantized = static_cast<int>(std::floor(clamped_avg * 5 + 1e-6));
+        if (quantized > 4) quantized = 4;
+        if (quantized == 0)
+          std::cout << "+" << "";
+        if (quantized == 1)
+          std::cout << "#" << "";
+        if (quantized == 2)
+          std::cout << "~" << "";
+        if (quantized == 3)
+          std::cout << "^" << "";
+        if (quantized == 4)
+          std::cout << "1" << "";
+      }
+      std::cout << std::endl;
+    }
     EXPECT_TRUE(!vec.empty()) << "Vector is empty, but contents are: "
                                   << ::testing::PrintToString(vec);
 }

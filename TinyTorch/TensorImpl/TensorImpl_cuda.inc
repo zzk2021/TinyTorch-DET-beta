@@ -210,7 +210,17 @@ struct OpCudaGe {
     return a >= b ? 1.f : 0.f;
   }
 };
-
+struct OpCudaAbs {
+  __device__ float operator()(const float a) const {
+    return fabsf(a);
+  }
+  __device__ __half operator()(const __half a) const {
+    return __habs(a);
+  }
+  __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a) const {
+    return __habs(a);
+  }
+};
 struct OpCudaMax {
   __device__ float operator()(const float a, const float b) const {
     return max(a, b);

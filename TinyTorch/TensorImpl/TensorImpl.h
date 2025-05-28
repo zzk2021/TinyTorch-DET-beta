@@ -65,7 +65,7 @@ class TensorImpl {
   template <typename T, typename = std::enable_if_t<
         std::is_same_v<std::decay_t<T>, cv::Mat>>>
   explicit TensorImpl(T&& image,
-                      Device device = getDefaultDevice());
+                      Device device = getDefaultDevice(),bool bgr_to_rgb = true);
 #endif
 
   // create
@@ -197,6 +197,7 @@ class TensorImpl {
   static TensorImpl sqrt(const TensorImpl &t);
   static TensorImpl tanh(const TensorImpl &t);
   static TensorImpl exp(const TensorImpl &t);
+  static TensorImpl abs(const TensorImpl &t);
   static TensorImpl log(const TensorImpl &t);
 
   TensorImpl sin() const { return sin(*this); }
@@ -204,6 +205,7 @@ class TensorImpl {
   TensorImpl sqrt() const { return sqrt(*this); }
   TensorImpl tanh() const { return tanh(*this); }
   TensorImpl exp() const { return exp(*this); }
+  TensorImpl abs() const { return abs(*this); }
   TensorImpl log() const { return log(*this); }
 
   // compare
@@ -492,22 +494,35 @@ class TensorImpl {
 
 #ifdef USE_OPENCV
 template <typename T, typename>
-TensorImpl::TensorImpl(T&& image, Device device){
-    device_ = device;
-    shape_ = {(int32_t)image.channels(), (int32_t)image.rows, (int32_t)image.cols};
-    initMeta();
-    initData();
-    for (int y = 0; y < image.rows; ++y) {
-        const uchar* row_ptr = image.ptr(y);
-        for(int x = 0; x < image.cols; ++x) {
-            for(int c = 0; c < image.channels(); ++c) {
-                float value = static_cast<float>(row_ptr[x * image.channels() + c]) / 255.0f;
-                ops_->copyHostToDevice(data_ + c * strides_[0] + y * strides_[1],
-                             &value,sizeof(float));
-            }
-        }
-    }
+TensorImpl::TensorImpl(T&& image, Device device, bool bgr_to_rgb) {
+  device_ = device;
+  const int channels = image.channels();
+  shape_ = {channels, image.rows, image.cols}; // CHW 格式
+  initMeta();  // 初始化 strides 等元数据
+  initData();  // 分配设备内存
+  assert(strides_[0] == image.rows * image.cols);
+  assert(strides_[1] == image.cols);
 
+  const size_t num_pixels = image.rows * image.cols;
+  std::vector<float> host_buffer(channels * num_pixels);
+
+  const bool convert_bgr = bgr_to_rgb && (channels == 3);
+
+  for (int c = 0; c < channels; ++c) {
+    const int src_c = convert_bgr ? (2 - c) : c;
+
+    for (int y = 0; y < image.rows; ++y) {
+      const uchar* src_row = image.ptr(y);
+      float* dst_channel = host_buffer.data() + c * num_pixels + y * image.cols;
+
+      for (int x = 0; x < image.cols; ++x) {
+        const uchar pixel = src_row[x * channels + src_c];
+        dst_channel[x] = static_cast<float>(pixel) * (1.0f / 255.0f);
+      }
+    }
+  }
+
+  ops_->copyHostToDevice(data_, host_buffer.data(), host_buffer.size() * sizeof(float));
 }
 #endif
 

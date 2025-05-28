@@ -13,6 +13,13 @@
 #include "Enums.h"
 namespace TinyTorch::nn {
 
+void Module::getTopologyTextHelper(std::stringstream& ss, int depth) const {
+    ss << std::string(depth * 2, ' ') << "|--" << name() << std::endl;
+    for (const auto& submod : subModules_) {
+        submod.get().getTopologyTextHelper(ss, depth + 1);
+    }
+}
+
 std::vector<Tensor *> Module::parameters() {
   std::vector<Tensor *> ret;
   for (auto &module : subModules_) {

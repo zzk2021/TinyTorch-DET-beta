@@ -5,7 +5,7 @@
 namespace TinyTorch {
 
 std::vector<int> FindBestAnchors(const std::vector<std::vector<float>>& iou_matrix) {
-    std::vector<int> best_anchors;
+    std::vector<int> best_anchors = {};
     for (const auto& row : iou_matrix) {
         auto max_iter = std::max_element(row.begin(), row.end());
         int index = static_cast<int>(std::distance(row.begin(), max_iter));
@@ -31,6 +31,10 @@ std::vector<std::vector<float>> ConvertToCorners(const std::vector<std::vector<f
 }
 
 std::vector<std::vector<float>> CalculateIOU(const std::vector<std::vector<float>>& box_a, const std::vector<std::vector<float>>& box_b) {
+  if (box_a.size() == 0 || box_b.size() == 0){
+      std::vector<std::vector<float>> p = {};
+      return p;
+  }
   std::vector<std::vector<float>> a_corners = ConvertToCorners(box_a);
   std::vector<std::vector<float>> b_corners = ConvertToCorners(box_b);
 

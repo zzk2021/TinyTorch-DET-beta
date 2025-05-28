@@ -52,11 +52,8 @@ std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     OBJDECT_EXPLORE_funcTypeToString_()
 };
 
-
-
 Tensor Function::upsample(const Tensor& input, int32_t scale_factor) {
-  return std::make_shared<FuncUpSample>(scale_factor)
-      ->callForward({&input});
+  return std::make_shared<FuncUpSample>(scale_factor)->callForward({&input});
 }
 
 Tensor Function::add(const Tensor& a, const Tensor& b) {
@@ -64,11 +61,11 @@ Tensor Function::add(const Tensor& a, const Tensor& b) {
 }
 
 Tensor Function::from_slice(const Tensor& a, const std::vector<int>& start, const std::vector<int>& end) {
-  return std::make_shared<FuncSlice>(start, end)->callForward({&a});
+  return std::make_shared<FuncSlice>(a.shape(), start, end)->callForward({&a});
 }
 
 Tensor Function::from_mask(const Tensor& a, const Tensor& b) {
-  return std::make_shared<FuncMask>()->callForward({&a, &b});
+  return std::make_shared<FuncMask>(a.shape())->callForward({&a, &b});
 }
 
 Tensor Function::concat(const Tensor& a, const Tensor& b, int32_t dim) {
@@ -216,6 +213,11 @@ Tensor Function::bceLoss(const Tensor& input, const Tensor& target,
       {&input, &target});
 }
 
+Tensor Function::bceLossWithSigmoid(const Tensor& input, const Tensor& target,
+                         LossReduction reduction) {
+  return std::make_shared<FuncBCELossWithSigmoid>(reduction)->callForward(
+      {&input, &target});
+}
 
 Tensor Function::nllloss(const Tensor& input, const Tensor& target,
                          LossReduction reduction) {
@@ -279,7 +281,8 @@ std::vector<TensorImpl> FuncLeaf::backward(const TensorImpl& grad) {
 
 
 TensorImpl FuncUpSample::forward(const std::vector<const Tensor*>& inputs) {
-    saveForBackward(inputs);
+    auto a_in_place = Tensor({0}, inputs[0]->isRequiresGrad());
+    saveForBackward({&a_in_place});
 
     // Get input tensor information
     const auto& input_data = inputs[0]->data().data();  // Get raw data pointer
@@ -336,23 +339,18 @@ std::vector<TensorImpl> FuncUpSample::backward(const TensorImpl& grad) {
     if (num_dims != 4) {
       throw std::runtime_error("Upsample only supports 4D tensors (NCHW format)");
     }
-
     const int32_t scale = scale_factor_;
-
     if (grad.device() == Device::CUDA){
       auto ret1 = grad.ops()->upsample_backward(grad, scale);
      return {ret1};
     }
-
-    const auto& input_shape = savedTensors[0].shape();
-
-
-    TensorImpl input_grad = TensorImpl::zeros(input_shape);
+    TensorImpl input_grad = TensorImpl::zeros({grad.shape()[0],
+           grad.shape()[1], grad.shape()[2] / scale, grad.shape()[3] / scale});
     auto output_grad = grad.data();
-    const int32_t N = input_shape[0];
-    const int32_t C = input_shape[1];
-    const int32_t H = input_shape[2];
-    const int32_t W = input_shape[3];
+    const int32_t N = input_grad.shape()[0];
+    const int32_t C = input_grad.shape()[1];
+    const int32_t H = input_grad.shape()[2];
+    const int32_t W = input_grad.shape()[3];
     const int32_t out_H = H * scale;
     const int32_t out_W = W * scale;
     for (int32_t n = 0; n < N; ++n) {
@@ -379,7 +377,8 @@ TensorImpl FuncMask::forward(const std::vector<const Tensor*>& inputs) {
     const Tensor& a = *inputs[0];
     const Tensor& b = *inputs[1];
     assert(!b.isRequiresGrad() && "the mask must be no Grad");
-    saveForBackward({&a});
+    Tensor a_in_place = Tensor({0},a.isRequiresGrad());
+    saveForBackward({&a_in_place});
     auto ret = a.data().ops()->from_mask(a.data(), b.data());
     indice_ = ret.second;
     return ret.first;
@@ -389,15 +388,15 @@ std::vector<TensorImpl> FuncMask::backward(const TensorImpl& grad) {
     const auto& savedTensors = getSavedTensors();
     std::vector<TensorImpl> ret;
     if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
-        const Tensor t1 = savedTensors[0];
-        auto grad_output = grad.ops()->from_mask_backward(grad, indice_, t1.shape());
+        auto grad_output = grad.ops()->from_mask_backward(grad, indice_, a_shape_);
         ret.push_back(grad_output);
     }
     return ret;
 }
 
 TensorImpl FuncSlice::forward(const std::vector<const Tensor*>& inputs) {
-    saveForBackward(inputs);
+    Tensor a_in_place = Tensor({0}, inputs[0]->isRequiresGrad());
+    saveForBackward({&a_in_place});
     const Tensor& t = *inputs[0];
     const auto& shape = t.data().shape();
     return t.data().ops()->from_slice(t.data(), start_, end_);
@@ -407,8 +406,7 @@ std::vector<TensorImpl> FuncSlice::backward(const TensorImpl& grad) {
     const auto& savedTensors = getSavedTensors();
     std::vector<TensorImpl> ret;
     if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
-        const Tensor t1 = savedTensors[0];
-        const TensorImpl grad_input = TensorImpl::zerosLike(t1.data(), grad.device());
+        const TensorImpl grad_input = TensorImpl::zeros(a_shape_, grad.device(), grad.type());
         grad_input.ops()->from_slice_backward(const_cast<TensorImpl &>(grad_input), grad, start_, end_);
         ret.push_back(grad_input);
     }
@@ -416,7 +414,9 @@ std::vector<TensorImpl> FuncSlice::backward(const TensorImpl& grad) {
 }
 
 TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {
-    saveForBackward(inputs);
+    Tensor a_in_place = Tensor({0}, inputs[0]->isRequiresGrad());
+    Tensor b_in_place = Tensor({0}, inputs[1]->isRequiresGrad());
+    saveForBackward({&a_in_place, &b_in_place});
     assert(inputs.size() == 2);
     const Tensor& t1 = *inputs[0];
     const Tensor& t2 = *inputs[1];
@@ -473,10 +473,8 @@ std::vector<TensorImpl> FuncConCat::backward(const TensorImpl& grad) {
         throw std::runtime_error("FuncConCat::backward expected 2 saved tensors");
     }
 
-    const Tensor t1 = savedTensors[0];
-    const Tensor t2 = savedTensors[1];
-    const bool need_grad1 = t1.isRequiresGrad();
-    const bool need_grad2 = t2.isRequiresGrad();
+    const bool need_grad1 = savedTensors[0].isRequiresGrad();
+    const bool need_grad2 = savedTensors[1].isRequiresGrad();
 
     if (!need_grad1 && !need_grad2) {
         return ret;
@@ -487,12 +485,13 @@ std::vector<TensorImpl> FuncConCat::backward(const TensorImpl& grad) {
         if (need_grad2) ret.push_back(grad_list[1]);
     } else {
 
-        const auto& t1_shape = t1.shape();
-        const auto& t2_shape = t2.shape();
+        std::vector<int> t1_shape = grad.shape();
+        std::vector<int> t2_shape = grad.shape();
+        t1_shape[dim_] = a_shape_;
+        t2_shape[dim_] = grad.shape()[dim_] - a_shape_;
         const int32_t a = t1_shape[dim_];
         const int32_t b = t2_shape[dim_];
         const auto& grad_shape = grad.shape();
-
 
         if (grad_shape[dim_] != a + b) {
             throw std::runtime_error("Gradient dimension mismatch in ConCat backward");
@@ -662,6 +661,7 @@ std::vector<TensorImpl> FuncPowScalar::backward(const TensorImpl& grad) {
   return ret;
 }
 
+
 TensorImpl FuncMax::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   auto maxRet = TensorImpl::max(inputs[0]->data(),dim_, keep_dim_);
@@ -739,15 +739,18 @@ std::vector<TensorImpl> FuncSum::backward(const TensorImpl& grad) {
 }
 
 TensorImpl FuncLeakyRelu::forward(const std::vector<const Tensor*>& inputs) {
-  saveForBackward(inputs);
-  return inputs[0]->data().ops()->leakyrelu(inputs[0]->data(), rate_);
+  auto [ret,mask] = inputs[0]->data().ops()->leakyrelu(inputs[0]->data(), rate_);
+  Tensor mask_t = Tensor(std::move(mask), inputs[0]->isRequiresGrad());
+  saveForBackward({&mask_t});
+
+  return ret;
 }
 
 std::vector<TensorImpl> FuncLeakyRelu::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
   if (savedTensors[0].isRequiresGrad()) {
-        ret.push_back(grad * (savedTensors[0].data() > 0) + grad * (savedTensors[0].data() <= 0) * rate_);
+        ret.push_back(grad.ops()->leakyrelu_backward(grad, savedTensors[0].data(), rate_));
   }
   return ret;
 }
@@ -1269,6 +1272,41 @@ std::vector<TensorImpl> FuncBatchNorm::backward(const TensorImpl& grad) {
   return ret;
 }
 
+TensorImpl FuncBCELossWithSigmoid::forward(const std::vector<const Tensor*>& inputs) {
+  saveForBackward(inputs);
+  Tensor input = *(inputs[0]);
+  Tensor target = *(inputs[1]);
+  auto ret = relu(input).data() - target.data() * input.data() +
+       TensorImpl::log(1 + TensorImpl::exp(0 - TensorImpl::abs(input.data())));
+  switch (reduction_) {
+    case MEAN:
+      return ret.mean();
+    case SUM:
+      return ret.sum();
+    default:
+      break;
+  }
+  return ret;
+}
+
+std::vector<TensorImpl> FuncBCELossWithSigmoid::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  auto retGrad = grad * (savedTensors[0] - savedTensors[1]).data();
+  switch (reduction_) {
+    case MEAN:
+      retGrad /= (float)savedTensors[0].numel();
+    default:
+      break;
+  }
+  std::vector<TensorImpl> ret;
+  if (savedTensors[0].isRequiresGrad()) {
+    ret.push_back(retGrad);
+  }
+  if (savedTensors[1].isRequiresGrad()) {
+    ret.push_back(grad * (0 - savedTensors[0]).data());
+  }
+  return ret;
+}
 
 TensorImpl FuncBCELoss::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
@@ -1284,6 +1322,7 @@ TensorImpl FuncBCELoss::forward(const std::vector<const Tensor*>& inputs) {
   }
   return ret;
 }
+
 
 std::vector<TensorImpl> FuncBCELoss::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();

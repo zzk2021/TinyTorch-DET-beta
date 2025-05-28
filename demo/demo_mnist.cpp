@@ -83,17 +83,9 @@ void train(TrainArgs &args, nn::Module &model, Device device,
 
     optimizer.zeroGrad();
     Tensor output = model(data);
-    Tensor loss_all = Tensor::scalar(0, true);
-    loss_all.to(output.device());
-    for (int i=0;i< output.shape()[0];i+=1){
-      auto output_slic = output[std::vector<TinyTorch::Slice>{{i,i+1},{}}];
-      auto target_slic = target[std::vector<TinyTorch::Slice>{{i,i+1}}];
-      auto loss = Function::nllloss(output_slic, target_slic);
-      loss_all += loss;
-    }
-    loss_all = loss_all / (float)output.shape()[0];
+    auto loss = Function::nllloss(output, target);
    // auto loss = Function::nllloss(output, target);
-    loss_all.backward();
+    loss.backward();
     optimizer.step();
 
     if (batchIdx % args.logInterval == 0) {
@@ -103,7 +95,7 @@ void train(TrainArgs &args, nn::Module &model, Device device,
       auto elapsed = (float)timer.elapseMillis() / 1000.f;  // seconds
       LOGD("Train Epoch: %d [%d/%d (%.0f%%)] Loss: %.6f, Elapsed: %.2fs", epoch,
            currDataCnt, totalDataCnt, 100.f * currDataCnt / (float)totalDataCnt,
-           loss_all.item(), elapsed);
+           loss.item(), elapsed);
 
       if (args.dryRun) {
         break;

@@ -28,7 +28,8 @@ enum class Dtype {
   bfloat16,
   float16,
   float8_e4m3,
-  float8_e5m2
+  float8_e5m2,
+  int8
 };
 
 
@@ -148,6 +149,7 @@ typedef enum ShapeCompatible_ {
   _H TensorImpl minimum(const TensorImpl& a, const float& b) _T;               \
                                                                                \
   _H void sin_(TensorImpl& t) _T;                                              \
+  _H void abs_(TensorImpl& t) _T;                                              \
   _H void cos_(TensorImpl& t) _T;                                              \
   _H void sqrt_(TensorImpl& t) _T;                                             \
   _H void tanh_(TensorImpl& t) _T;                                             \
@@ -172,6 +174,7 @@ typedef enum ShapeCompatible_ {
   /* aggregation */                                                            \
   _H TensorImpl min(const TensorImpl& t) _T;                                   \
   _H TensorImpl max(const TensorImpl& t) _T;                                   \
+  _H TensorImpl abs(const TensorImpl& t) _T;                                   \
   _H TensorImpl sum(const TensorImpl& t) _T;                                   \
   _H TensorImpl mean(const TensorImpl& t) _T;                                  \
   _H TensorImpl var(const TensorImpl& t, bool unbiased) _T;                    \
@@ -239,7 +242,10 @@ typedef enum ShapeCompatible_ {
   const TensorImpl& b, int32_t dim_) _T;                                       \
   _H std::vector<TensorImpl> concat_backward(const TensorImpl& a,              \
   int32_t dim_,int32_t a_dim_shape) _T;                                        \
-  _H TensorImpl leakyrelu(const TensorImpl& t, float rate) _T;                 \
+  _H std::pair<TensorImpl, TensorImpl> leakyrelu(const TensorImpl& t           \
+  , float rate) _T;                                                            \
+    _H TensorImpl leakyrelu_backward(const TensorImpl& t                       \
+  , const TensorImpl& mask, float rate) _T;                                    \
   _H void gemm(float* c, const float* a, const float* b, int32_t m,            \
   int32_t k, int32_t n, bool transA, bool transBk,                             \
   Dtype Ta = Dtype::float32, Dtype Tc = Dtype::float32) _T;                    \

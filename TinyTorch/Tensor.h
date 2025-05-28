@@ -115,6 +115,7 @@ class Tensor {
   Tensor pow(const Tensor &exp) const;
   Tensor sum() const;
   Tensor mean() const;
+  Tensor var() const;
   Tensor squeeze(int32_t dim = -1) const;
   Tensor unsqueeze(int32_t dim) const;
 

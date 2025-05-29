@@ -1,0 +1,12 @@
+{
+  "batchSize": 64,
+  "testBatchSize": 1000,
+  "epochs": 1,
+  "lr": 1.0,
+  "gamma": 0.7,
+  "noCuda": false,
+  "dryRun": false,
+  "seed": 1,
+  "logInterval": 10,
+  "saveModel": false
+}

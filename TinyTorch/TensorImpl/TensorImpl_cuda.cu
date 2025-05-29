@@ -1858,17 +1858,11 @@ TensorImpl TensorOpsCUDA::from_slice(const TensorImpl& a, std::vector<int> start
         default:
             throw std::invalid_argument("Unsupported number of dimensions");
     }
+    CUDA_KERNEL_CHECK();
     deallocate(d_a_strides);
     deallocate(d_starts);
     deallocate(d_new_strides);
     deallocate(d_new_shape);
-
-    cudaDeviceSynchronize();  // ⚠️ 强制同步
-    // Step 5: Check for kernel errors
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err));
-    }
     return result;
 }
 
@@ -2130,10 +2124,7 @@ TensorImpl TensorOpsCUDA::upsample_forward(const TensorImpl& a , int32_t scale_f
     cudaDeviceSynchronize();
   }
   else{}
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
-  }
+  CUDA_KERNEL_CHECK();
   return ret;
 }
 
@@ -2151,10 +2142,7 @@ TensorImpl TensorOpsCUDA::upsample_backward(const TensorImpl& a , int32_t scale_
   }
   else
       {}
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
-  }
+  CUDA_KERNEL_CHECK();
   return ret;
 }
 TensorImpl  TensorOpsCUDA::flash_attention_(const TensorImpl& Q, const TensorImpl& K, const TensorImpl& V , int32_t head){

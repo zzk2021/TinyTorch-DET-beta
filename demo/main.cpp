@@ -12,6 +12,6 @@ int main(int argc, char **argv) {
   //demo_optim();
   //demo_mnist();
   //demo_yolov3();
-  demo_cifar10();
+  //demo_cifar10();
   return 0;
 }

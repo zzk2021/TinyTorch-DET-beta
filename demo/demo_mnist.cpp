@@ -5,7 +5,7 @@
  */
 
 #include "Torch.h"
-
+#include "tools/tools.h"
 using namespace TinyTorch;
 
 // https://github.com/pytorch/examples/blob/main/mnist/main.py
@@ -37,40 +37,7 @@ class Net : public nn::Module {
   nn::Linear fc2{128, 10};
 };
 
-// Training settings
-struct TrainArgs {
-  // input batch size for training (default: 64)
-  int32_t batchSize = 64;
-
-  // input batch size for testing (default: 1000)
-  int32_t testBatchSize = 1000;
-
-  // number of epochs to train (default: 1)
-  int32_t epochs = 1;
-
-  // learning rate (default: 1.0)
-  float lr = 1.f;
-
-  // Learning rate step gamma (default: 0.7)
-  float gamma = 0.7f;
-
-  // disables CUDA training
-  bool noCuda = false;
-
-  // quickly check a single pass
-  bool dryRun = false;
-
-  // random seed (default: 1)
-  unsigned long seed = 1;
-
-  // how many batches to wait before logging training status
-  int32_t logInterval = 10;
-
-  // For Saving the current Model
-  bool saveModel = false;
-};
-
-void train(TrainArgs &args, nn::Module &model, Device device,
+void train(json &args, nn::Module &model, Device device,
            data::DataLoader &dataLoader, optim::Optimizer &optimizer,
            int32_t epoch) {
   model.train();
@@ -83,21 +50,29 @@ void train(TrainArgs &args, nn::Module &model, Device device,
 
     optimizer.zeroGrad();
     Tensor output = model(data);
-    auto loss = Function::nllloss(output, target);
+    Tensor loss_all = Tensor::scalar(0, true);
+    loss_all.to(output.device());
+    for (int i=0;i< output.shape()[0];i+=1){
+      auto output_slic = output[std::vector<TinyTorch::Slice>{{i,i+1},{}}];
+      auto target_slic = target[std::vector<TinyTorch::Slice>{{i,i+1}}];
+      auto loss = Function::nllloss(output_slic, target_slic);
+      loss_all += loss;
+    }
+    loss_all = loss_all / (float)output.shape()[0];
    // auto loss = Function::nllloss(output, target);
-    loss.backward();
+    loss_all.backward();
     optimizer.step();
 
-    if (batchIdx % args.logInterval == 0) {
+    if (batchIdx % args.at("logInterval").get<int>() == 0) {
       timer.mark();
       auto currDataCnt = batchIdx * dataLoader.batchSize();
       auto totalDataCnt = dataLoader.dataset().size();
       auto elapsed = (float)timer.elapseMillis() / 1000.f;  // seconds
       LOGD("Train Epoch: %d [%d/%d (%.0f%%)] Loss: %.6f, Elapsed: %.2fs", epoch,
            currDataCnt, totalDataCnt, 100.f * currDataCnt / (float)totalDataCnt,
-           loss.item(), elapsed);
+           loss_all.item(), elapsed);
 
-      if (args.dryRun) {
+      if (args.at("dryRun")) {
         break;
       }
     }
@@ -132,15 +107,16 @@ void test(nn::Module &model, Device device, data::DataLoader &dataLoader) {
 }
 
 void demo_mnist() {
+
+
   LOGD("demo_mnist ...");
   Timer timer;
   timer.start();
-
-  TrainArgs args;
-
-  manualSeed(args.seed);
-
-  auto useCuda = (!args.noCuda) && Tensor::deviceAvailable(Device::CUDA);
+  auto workdir = currentPath();
+  fs::path subsir = "..\\config\\mnist.json";
+  auto args = loadConfig((workdir / subsir).string());
+  manualSeed(args.at("seed"));
+  auto useCuda = (!args.at("noCuda")) && Tensor::deviceAvailable(Device::CUDA);
   Device device = useCuda ? Device::CUDA : Device::CPU;
   LOGD("Train with device: %s", useCuda ? "CUDA" : "CPU");
 
@@ -158,22 +134,22 @@ void demo_mnist() {
     return;
   }
 
-  auto trainDataloader = data::DataLoader(trainDataset, args.batchSize, true);
-  auto testDataloader = data::DataLoader(testDataset, args.testBatchSize, true);
+  auto trainDataloader = data::DataLoader(trainDataset, args.at("batchSize"), true);
+  auto testDataloader = data::DataLoader(testDataset, args.at("testBatchSize"), true);
 
   auto model = Net();
   model.to(device);
 
-  auto optimizer = optim::AdaDelta(model.parameters(), args.lr);
-  auto scheduler = optim::lr_scheduler::StepLR(optimizer, 1, args.gamma);
+  auto optimizer = optim::AdaDelta(model.parameters(), args.at("lr"));
+  auto scheduler = optim::lr_scheduler::StepLR(optimizer, 1, args.at("gamma"));
 
-  for (auto epoch = 1; epoch < args.epochs + 1; epoch++) {
+  for (auto epoch = 1; epoch < args.at("epochs").get<int>() + 1; epoch++) {
     train(args, model, device, trainDataloader, optimizer, epoch);
     test(model, device, testDataloader);
     scheduler.step();
   }
 
-  if (args.saveModel) {
+  if (args.at("saveModel")) {
     save(model, "mnist_cnn.model");
   }
 

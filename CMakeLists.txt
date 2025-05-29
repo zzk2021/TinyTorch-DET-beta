@@ -34,6 +34,16 @@ if (${USE_OPENCV})
 endif()
 
 
+include(FetchContent)
+FetchContent_Declare(
+        json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG v3.12.0 # 或者任何其他版本标签
+)
+# 确保库被获取并使其准备好被使用
+FetchContent_MakeAvailable(json)
+
+
 # 设置CUDA的编译标志
 #set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --keep --keep-dir tmp -gencode arch=compute_50,code=sm_50 -v")
 add_subdirectory(TinyTorch)

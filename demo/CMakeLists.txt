@@ -14,11 +14,11 @@ add_executable(${PROJECT_NAME}
         demo_optim.cpp
         demo_mnist.cpp
         demo_yolov3.cpp
-        demo_darknet.cpp
-        main.cpp)
+        main.cpp
+        tools/tools.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../TinyTorch
+        ${CMAKE_CURRENT_SOURCE_DIR}/../TinyTorch ${json_SOURCE_DIR}/include
 )
 
 target_link_libraries(${PROJECT_NAME} TinyTorch)
@@ -36,6 +36,8 @@ if (${USE_BLAS})
         )
     endif ()
 endif ()
+
+
 
 # copy assets
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD

@@ -1,9 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(TinyTorch)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 if (${USE_CUDA})
     set(CMAKE_CUDA_ARCHITECTURES "60;70;75;80;89")
     find_package(CUDA REQUIRED)

@@ -129,7 +129,6 @@ Tensor FlashSelfAttention::forward(Tensor &Q, Tensor &K, Tensor &V) {
   }
 }
 
-
 Linear::Linear(int32_t inFeatures, int32_t outFeatures, bool bias)
     : inFeatures_(inFeatures), outFeatures_(outFeatures), useBias_(bias) {
   weights_ = Tensor::shape({outFeatures, inFeatures}, true);

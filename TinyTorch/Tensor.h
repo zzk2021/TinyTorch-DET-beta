@@ -122,7 +122,7 @@ class Tensor {
  public:
   bool isRequiresGrad() const;
 
-  void setRequiresGrad(bool requires);
+  void setRequiresGrad(bool require);
 
   void backward(const Tensor &grad = {});
 

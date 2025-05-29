@@ -314,7 +314,7 @@ Tensor::Tensor(TensorImpl &&data, bool requiresGrad,
 
 bool Tensor::isRequiresGrad() const { return requiresGrad_; }
 
-void Tensor::setRequiresGrad(bool requires) { initAutograd(requires); }
+void Tensor::setRequiresGrad(bool require) { initAutograd(require); }
 
 void Tensor::backward(const Tensor &grad) {
   if (requiresGrad_) {

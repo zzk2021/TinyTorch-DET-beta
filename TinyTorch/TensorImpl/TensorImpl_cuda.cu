@@ -1710,57 +1710,56 @@ TensorImpl TensorOpsCUDA::leakyrelu_backward(const TensorImpl& a, const TensorIm
 std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, const TensorImpl& b) {
   assert(b.shape().size() <= a.shape().size());
   TensorImpl mask;
-  if (a.shape() != b.shape()){
+  if (a.shape() != b.shape()) {
     for (int i = 0; i < a.shape().size(); ++i) {
       int dim_mask = (i < a.shape().size() - b.shape().size())
                          ? 1 : b.shape()[i - (a.shape().size() - b.shape().size())];
       int dim_target = a.shape()[i];
       if (dim_mask != 1 && dim_mask != dim_target) {
-        assert(true);
+        assert(false && "Broadcast dimension mismatch");
       }
     }
-    mask = TensorImpl::zerosLike(a,a.device(),a.type());
-    if (a.type_ == Dtype::float32)
+    mask = TensorImpl::zerosLike(a, a.device(), a.type());
+    if (a.type_ == Dtype::float32) {
       broadcastImpl<OpCudaAssign>(mask, a, b);
-  }else{
+    }
+  } else {
     mask = b;
   }
-  int32_t ndim = a.shape_.size();
-  int numElements = a.numel();
-  int* d_prefixSum;
-  allocate(reinterpret_cast<void**>(&d_prefixSum), numElements * sizeof(int));
+
+  const int numElements = a.numel();
   const int blockSize = 256;
-  int gridSize = (numElements + blockSize - 1) / blockSize;
+  const int gridSize = (numElements + blockSize - 1) / blockSize;
 
-  computePrefixSumKernel<<<gridSize, blockSize>>>(
-      mask.data(), d_prefixSum, numElements);
-  thrust::device_ptr<int> thrust_prefixSum(d_prefixSum);
-  thrust::inclusive_scan(thrust_prefixSum,
-                         thrust_prefixSum + numElements, thrust_prefixSum);
+  int totalValid = 0;
+  TensorImpl ret = TensorImpl::shape({0}, a.device(), a.type());
+  TensorImpl indices_t = TensorImpl::shape({0}, a.device(), Dtype::float32);
+  totalValid = (int)mask.sum().item();
+  if (a.type_ == Dtype::float32) {
+    CUDA_KERNEL_CHECK();
+    if (totalValid > 0) {
+      ret = TensorImpl::shape({totalValid}, a.device(), a.type());
+      indices_t = TensorImpl::shape({totalValid}, a.device(), Dtype::float32);
+      int* d_counter;
+      allocate(reinterpret_cast<void**>(&d_counter), sizeof(int));
+      cudaMemset(d_counter, 0, sizeof(int));
 
-  int totalValid;
-  float *indice;
-  copyDeviceToHost(&totalValid, d_prefixSum + numElements - 1, sizeof(int));
-  allocate(reinterpret_cast<void**>(&indice), totalValid * sizeof(float));
-  std::vector<float> indices_host;
-  indices_host.resize(totalValid);
-
-  TensorImpl ret = TensorImpl::shape({totalValid}, a.device(), a.type());
-
-  gatherElementsKernel<<<gridSize, blockSize>>>(a.data(),
-                                                d_prefixSum, indice, ret.data(), numElements);
-  //scatterElementsKernel<<<gridSize, blockSize>>>(d_input, d_prefixSum, ret.data(), numElements);
-  copyDeviceToHost(indices_host.data(), indice, totalValid * sizeof(float));
-
-  deallocate(d_prefixSum);
-  deallocate(indice);
-  // Step 5: Check for kernel errors
-  CUDA_KERNEL_CHECK();
-  TensorImpl indices_t =  TensorImpl(indices_host,a.device());
-
+      maskedSelectKernel<<<gridSize, blockSize>>>(
+          a.data(),
+          mask.data(),
+          ret.data(),
+          reinterpret_cast<int32_t*>(indices_t.data()),
+          d_counter,
+          numElements
+      );
+      CUDA_KERNEL_CHECK();
+      deallocate(d_counter);
+    }
+  } else {
+    assert(false && "Unsupported dtype");
+  }
   return {ret, indices_t};
 }
-
 
 TensorImpl TensorOpsCUDA::from_mask_backward(
     const TensorImpl& grad_output,
@@ -1774,7 +1773,7 @@ TensorImpl TensorOpsCUDA::from_mask_backward(
     int gridSize = (totalValid + blockSize - 1) / blockSize;
     scatterGradKernel<<<gridSize, blockSize>>>(
         grad_output.data(),
-        indices.data_,
+        reinterpret_cast<int32_t*>(indices.data_),
         grad_input.data(),
         totalValid
     );

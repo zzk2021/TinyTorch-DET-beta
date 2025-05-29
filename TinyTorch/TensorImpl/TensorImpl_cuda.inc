@@ -895,7 +895,7 @@ __global__ void kReduceAllLastDim(T* __restrict__ output,
                                   const T* __restrict__ input, const int n,
                                   const int m) {
   const auto index = blockIdx.x * blockDim.x + threadIdx.x;
-  __shared__ float shared[WARP_SIZE];
+  __shared__ T shared[WARP_SIZE];
   float val = OP::template defaultVal<T>();
 
   const auto segDim = gridDim.x * blockDim.x / m;

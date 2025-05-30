@@ -92,6 +92,7 @@ TensorImpl::TensorImpl(TensorImpl &&other) noexcept {
   moveFrom(std::move(other));
 }
 
+
 TensorImpl &TensorImpl::operator=(const TensorImpl &other) {
   if (this != &other) {
     shareFrom(other);
@@ -1680,6 +1681,7 @@ TensorImpl TensorImpl::matmulTrans(const TensorImpl &a, const TensorImpl &b,
   // fast path
   if (a.dim() == 2 && b.dim() == 2) {
     TENSOR_CHECK_DEVICE_RET(a, b, {});
+    TENSOR_CHECK_DTYPE_RET(a, b ,{});
     // a[m, k], b[k, n] -> [m, n]
     int32_t m = a.shape()[transA ? 1 : 0];
     int32_t k = a.shape()[transA ? 0 : 1];
@@ -1720,5 +1722,59 @@ TensorImpl TensorImpl::col2im1D(const Shape &shape, Size1D kernelSize,
   TENSOR_CHECK_EMPTY_RET(*this, {});
   return ops_->col2im1D(*this, shape, kernelSize, stride, padding);
 }
+
+TensorImpl TensorImpl::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim) {
+  TENSOR_CHECK_DEVICE_RET(a, b, {});
+  TENSOR_CHECK_DTYPE_RET(a, b ,{});
+
+  Shape a_shape = a.shape();
+  Shape b_shape = b.shape();
+
+  if(!(dim >= 0 || dim < a_shape.size()))
+  {
+    TensorOperations::error(__FUNCTION__, TensorError_InvalidAxis);
+    return {};
+  }
+  if(a_shape.size() != b_shape.size() ){
+    TensorOperations::error(__FUNCTION__, TensorError_ShapeNotAligned);
+    return {};
+  }
+  for (int32_t i = 0; i < a_shape.size(); ++i) {
+    if (!(i == dim || a_shape[i] == b_shape[i])){
+      TensorOperations::error(__FUNCTION__, TensorError_ShapeNotAligned);
+    }
+  }
+  if(dim==a_shape.size()-1 || (dim == 1 && a_shape.size() == 4) || (dim == 2 && a_shape.size() == 4)){
+    return a.ops_->concat(a,b,dim);
+  }
+  else{
+    TensorOperations::error(__FUNCTION__, TensorError_NotSupport);
+    return {};
+  }
+ }
+
+ std::vector<TensorImpl> TensorImpl::split(int32_t splitSize,
+                    int32_t dim, char placeholder) const{
+   if (dim < 0) {
+     dim += dimCount_;
+   }
+   if (dim < 0 || dim >= dimCount_) {
+     TensorOperations::error(__FUNCTION__, TensorError_InvalidAxis);
+     return {};
+   }
+   const auto dimSize = shape_[dim];
+   if (splitSize <= 0 || splitSize > dimSize) {
+     TensorOperations::error(__FUNCTION__, TensorError_InvalidSections);
+     return {};
+   }
+   std::vector<TensorImpl> retTensors;
+
+   Shape newShape_b = shape_;
+   Shape newShape_a = shape_;
+   newShape_b[dim] = shape_[dim] - splitSize;
+   newShape_a[dim] = splitSize;
+
+   return this->ops_->split(*this,splitSize,dim,newShape_a,newShape_b);
+ }
 
 }  // namespace TinyTorch

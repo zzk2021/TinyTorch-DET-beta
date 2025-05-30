@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(TinyTorch)
 
+
 if (${USE_CUDA})
     set(CMAKE_CUDA_ARCHITECTURES "60;70;75;80;89")
     find_package(CUDA REQUIRED)
@@ -47,3 +48,14 @@ if (${USE_BLAS})
         target_link_libraries(${PROJECT_NAME} openblas)
     endif ()
 endif ()
+
+
+if (${USE_DEBUG})
+    if(UNIX)
+        target_link_libraries(${PROJECT_NAME} backtrace)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE USE_BACKTRACE)
+    elseif(WIN32)
+        target_link_libraries(${PROJECT_NAME} DbgHelp)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE USE_DBGHELP)
+    endif()
+endif()

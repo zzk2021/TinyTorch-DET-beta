@@ -7,7 +7,6 @@
 #pragma once
 
 #include <vector>
-
 #include "../Allocator.h"
 #include "../Logger.h"
 
@@ -233,15 +232,8 @@ typedef enum ShapeCompatible_ {
                const TensorImpl& V , int32_t head) _T;                         \
   _H TensorImpl upsample_forward(const TensorImpl& Q, int32_t scale_factor) _T;\
   _H TensorImpl upsample_backward(const TensorImpl& Q, int32_t scale_factor) _T;\
-  _H std::pair<TensorImpl, TensorImpl> split(                                  \
-    const TensorImpl& input,                                                   \
-    int32_t split_size0,                                                       \
-    int32_t split_size1,                                                       \
-    int32_t dim) _T ;                                                          \
   _H TensorImpl concat(const TensorImpl& a ,                                   \
   const TensorImpl& b, int32_t dim_) _T;                                       \
-  _H std::vector<TensorImpl> concat_backward(const TensorImpl& a,              \
-  int32_t dim_,int32_t a_dim_shape) _T;                                        \
   _H std::pair<TensorImpl, TensorImpl> leakyrelu(const TensorImpl& t           \
   , float rate) _T;                                                            \
     _H TensorImpl leakyrelu_backward(const TensorImpl& t                       \
@@ -250,8 +242,9 @@ typedef enum ShapeCompatible_ {
   int32_t k, int32_t n, bool transA, bool transBk,                             \
   Dtype Ta = Dtype::float32, Dtype Tc = Dtype::float32) _T;                    \
   _H void from_slice_backward(TensorImpl& ret, const TensorImpl& b,            \
-       std::vector<int> starts, std::vector<int> ends) _T;
-
+       std::vector<int> starts, std::vector<int> ends) _T;                     \
+  _H std::vector<TensorImpl> split(const TensorImpl& a ,int32_t                \
+         splitSize,  int32_t dim, Shape a_shape, Shape b_shape) _T;
 class TensorImpl;
 
 

@@ -393,7 +393,12 @@ class TensorImpl {
 
   // split
   std::vector<TensorImpl> split(int32_t splitSize, int32_t dim = 0) const;
+  std::vector<TensorImpl> split(int32_t dimSize, int32_t dim, char placeholder) const;
 
+  static std::vector<TensorImpl> split(const TensorImpl &t, int32_t splitSize,
+                                       int32_t dim , char placeholder) {
+    return t.split(splitSize, dim, placeholder);
+  }
   static std::vector<TensorImpl> split(const TensorImpl &t, int32_t splitSize,
                                        int32_t dim = 0) {
     return t.split(splitSize, dim);
@@ -436,6 +441,8 @@ class TensorImpl {
   // col2im 1D
   TensorImpl col2im1D(const Shape &shape, Size1D kernelSize, Size1D stride,
                     Size1D padding = 0) const;
+  TensorImpl concat(const TensorImpl& a , const TensorImpl& b, int32_t dim);
+
 
   // properties
   Device device() const { return device_; }
@@ -525,5 +532,4 @@ TensorImpl::TensorImpl(T&& image, Device device, bool bgr_to_rgb) {
   ops_->copyHostToDevice(data_, host_buffer.data(), host_buffer.size() * sizeof(float));
 }
 #endif
-
 }  // namespace TinyTorch

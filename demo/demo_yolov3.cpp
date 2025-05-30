@@ -273,8 +273,8 @@ class YoloLoss : public nn::Module {
             if (loss_conf.toList().size() == 0 || std::isnan(loss_conf.item())) {
               LOGW("Warning: loss_conf is NaN, skipping this batch.");
             }
-            else{}
-              //loss  += loss_conf * obj_ratio_;
+            else
+              loss += loss_conf * obj_ratio_;
            }
            return loss;
         }

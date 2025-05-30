@@ -6,9 +6,7 @@
 
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
-#include <thrust/device_ptr.h>
-#include <thrust/scan.h>
-
+#include "../traceback.h"
 #if CUDA_VERSION >= 12010
 #include <cuda_fp8.h>
 #endif
@@ -530,22 +528,9 @@ void TensorOpsCUDA::convertTypeOnDevice(void* dst, void* src, size_t count, Dtyp
    // src = static_cast<float*>(src);
     size_t threads_per_block = 256;
     size_t blocks = (count + threads_per_block - 1) / threads_per_block;
-    if (Ti == Dtype::float32) {
-        assert(static_cast<float*>(src) != nullptr);
-    } else if (Ti == Dtype::bfloat16) {
-        assert(static_cast<__nv_bfloat16*>(src) != nullptr);
-    } else if (Ti == Dtype::float16) {
-        assert(static_cast<half*>(src) != nullptr);
-    }
-
-    if (To == Dtype::float32) {
-        assert(static_cast<float*>(dst) != nullptr);
-    } else if (To == Dtype::bfloat16) {
-        assert(static_cast<__nv_bfloat16*>(dst) != nullptr);
-    } else if (To == Dtype::float16) {
-        assert(static_cast<half*>(dst) != nullptr);
-    }
-
+    ASSERT(src != nullptr);
+    ASSERT(dst != nullptr);
+    
     if (Ti == Dtype::float32 && To == Dtype::float16) {
         convertFloatToHalfKernel<<<blocks, threads_per_block>>>(
             static_cast<float*>(src), static_cast<half*>(dst), count);
@@ -1284,7 +1269,7 @@ void TensorOpsCUDA::indexPut_(
   auto len = (int32_t)indices.size();
   auto fistDim = (int32_t)indices[0].get().elemCount_;
   auto dimStride = t.strides_[len - 1];
-  assert(val.elemCount_ == dimStride * fistDim);
+  ASSERT(val.elemCount_ == dimStride * fistDim);
 
   FixedVector<float*> indicesData{};
   for (int32_t i = 0; i < len; i++) {
@@ -1299,7 +1284,7 @@ void TensorOpsCUDA::indexPut_(
 TensorImpl TensorOpsCUDA::im2col(const TensorImpl& t, Size2D kernel,
                                  Size2D stride, Size2D padding) {
   // this: [C, H, W], [N, C, H, W]
-  assert(t.dimCount_ == 3 || t.dimCount_ == 4);
+  ASSERT(t.dimCount_ == 3 || t.dimCount_ == 4);
   int32_t batch = (t.dimCount_ == 4) ? t.shape_[0] : 1;
   int32_t channels = (t.dimCount_ == 4) ? t.shape_[1] : t.shape_[0];
   int32_t height = (t.dimCount_ == 4) ? t.shape_[2] : t.shape_[1];
@@ -1340,7 +1325,7 @@ TensorImpl TensorOpsCUDA::im2col1D(const TensorImpl& t,
                                  Size1D stride,
                                  Size1D padding) {
 
-  assert(t.dimCount_ == 2 || t.dimCount_ == 3);
+  ASSERT(t.dimCount_ == 2 || t.dimCount_ == 3);
 
   const int32_t batch = (t.dimCount_ == 3) ? t.shape_[0] : 1;
   const int32_t channels = (t.dimCount_ == 3) ? t.shape_[1] : t.shape_[0];
@@ -1411,7 +1396,7 @@ TensorImpl TensorOpsCUDA::im2col1D(const TensorImpl& t,
 TensorImpl TensorOpsCUDA::col2im(const TensorImpl& t, const Shape& shape,
                                  Size2D kernel, Size2D stride, Size2D padding) {
   // shape: [C, H, W], [N, C, H, W]
-  assert(shape.size() == 3 || shape.size() == 4);
+  ASSERT(shape.size() == 3 || shape.size() == 4);
   int32_t batch = (shape.size() == 4) ? shape[0] : 1;
   int32_t channels = (shape.size() == 4) ? shape[1] : shape[0];
   int32_t height = (shape.size() == 4) ? shape[2] : shape[1];
@@ -1455,7 +1440,7 @@ TensorImpl TensorOpsCUDA::col2im1D(const TensorImpl& t,
                                  Size1D kernel,
                                  Size1D stride,
                                  Size1D padding) {
-    assert(shape.size() == 2 || shape.size() == 3);
+    ASSERT(shape.size() == 2 || shape.size() == 3);
 
     const int32_t batch = (shape.size() == 3) ? shape[0] : 1;
     const int32_t channels = (shape.size() == 3) ? shape[1] : shape[0];
@@ -1581,61 +1566,6 @@ void TensorOpsCUDA::gemm(float* c, const float* a, const float* b, int32_t m,
   }
 }
 
-std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::split(
-    const TensorImpl& input,
-    int32_t split_size0,
-    int32_t split_size1,
-    int32_t dim)
-{
-  Shape input_shape = input.shape();
-
-  std::vector<int32_t> output_shape0 = input.shape();
-  std::vector<int32_t> output_shape1 = input.shape();
-  output_shape0[dim] = split_size0;
-  output_shape1[dim] = split_size1;
-  auto ret0 = TensorImpl::shape(output_shape0, input.device_, input.type_);
-  auto ret1 = TensorImpl::shape(output_shape1, input.device_, input.type_);
-
-  int32_t threads_per_block = 256;
-  int32_t total_elems = input.numel();
-  int32_t blocks = (total_elems + threads_per_block - 1) / threads_per_block;
-
-  if (input.type() ==  Dtype::float32)
-    ppl_cukernel_split<<<blocks, threads_per_block>>>(
-        input.data(),
-        ret0.data_,
-        ret1.data_,
-        input.shape().data(),
-        split_size0,
-        split_size1, dim,total_elems
-    );
-  else if (input.type() ==  Dtype::float16)
-    ppl_cukernel_split<<<blocks, threads_per_block>>>(
-       reinterpret_cast<const half*>(input.data()),
-       reinterpret_cast<half*>(ret0.data_),
-       reinterpret_cast<half*>(ret1.data_),
-       input.shape().data(),
-        split_size0,
-        split_size1,
-       dim, total_elems
-   );
-  else if (input.type() ==  Dtype::bfloat16)
-    ppl_cukernel_split<<<blocks, threads_per_block>>>(
-       reinterpret_cast<const __nv_bfloat16*>(input.data()),
-       reinterpret_cast<__nv_bfloat16*>(ret0.data()),
-       reinterpret_cast<__nv_bfloat16*>(ret1.data()),
-       input.shape().data(),
-        split_size0,
-        split_size1,
-       dim, total_elems
-   );
-  cudaError_t err = cudaGetLastError();
-  if (err != cudaSuccess) {
-    printf("Kernel execution failed: %s\n", cudaGetErrorString(err));
-  }
-  return {ret0, ret1};
-}
-
 std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::leakyrelu(const TensorImpl& a, float rate){
   int32_t threads_per_block = 256;
   int32_t total_elems = a.numel();
@@ -1708,7 +1638,7 @@ TensorImpl TensorOpsCUDA::leakyrelu_backward(const TensorImpl& a, const TensorIm
 }
 
 std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, const TensorImpl& b) {
-  assert(b.shape().size() <= a.shape().size());
+  ASSERT(b.shape().size() <= a.shape().size());
   TensorImpl mask;
   if (a.shape() != b.shape()) {
     for (int i = 0; i < a.shape().size(); ++i) {
@@ -1716,7 +1646,7 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, 
                          ? 1 : b.shape()[i - (a.shape().size() - b.shape().size())];
       int dim_target = a.shape()[i];
       if (dim_mask != 1 && dim_mask != dim_target) {
-        assert(false && "Broadcast dimension mismatch");
+        ASSERT(false && "Broadcast dimension mismatch");
       }
     }
     mask = TensorImpl::zerosLike(a, a.device(), a.type());
@@ -1756,7 +1686,7 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::from_mask(const TensorImpl& a, 
       deallocate(d_counter);
     }
   } else {
-    assert(false && "Unsupported dtype");
+    ASSERT(false && "Unsupported dtype");
   }
   return {ret, indices_t};
 }
@@ -1938,14 +1868,7 @@ void TensorOpsCUDA::from_slice_backward(TensorImpl& ret, const TensorImpl& b,
     deallocate(d_starts);
     deallocate(d_new_strides);
     deallocate(d_new_shape);
-
-    cudaDeviceSynchronize();  // ⚠️ 强制同步
-    // Step 5: Check for kernel errors
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        throw std::runtime_error(std::string("CUDA error: ") + cudaGetErrorString(err));
-    }
-
+    CUDA_KERNEL_CHECK();
 }
 
 TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim){
@@ -1955,20 +1878,19 @@ TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int3
   output_shape[dim] = a_shape[dim] + b_shape[dim];
 
   TensorImpl ret = TensorImpl::shape(output_shape, a.device(), a.type());
-  using type = float;
 
   if (dim==a_shape.size()-1){
     size_t num_blocks = 1;
-    size_t a_block_bytes = a_shape[dim] * sizeof(type);
-    size_t b_block_bytes = b_shape[dim] * sizeof(type);
+    size_t a_block_bytes = a_shape[dim] * sizeof(float );
+    size_t b_block_bytes = b_shape[dim] * sizeof(float);
 
     for (int i = 0; i < a_shape.size() - 1; ++i) {
         num_blocks *= a_shape[i];
     }
     for (size_t i = 0; i < num_blocks; ++i) {
-        const type* a_src = reinterpret_cast<type*>(a.data_) + i * a_shape[dim];
-        const type* b_src = reinterpret_cast<type*>(b.data_) + i * b_shape[dim];
-        type* output_dst = reinterpret_cast<type*>(ret.data_) + i * (a_shape[dim] + b_shape[dim]);
+        const float* a_src = reinterpret_cast<float*>(a.data_) + i * a_shape[dim];
+        const float* b_src = reinterpret_cast<float*>(b.data_) + i * b_shape[dim];
+        float* output_dst = reinterpret_cast<float*>(ret.data_) + i * (a_shape[dim] + b_shape[dim]);
         cudaMemcpyAsync(
             output_dst,
             a_src,
@@ -1989,12 +1911,12 @@ TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int3
      cudaStream_t stream;
     cudaStreamCreate(&stream);
     size_t num_samples = a_shape[0]; // N
-    size_t a_sample_size = a.strides_[0] * sizeof(type);
-    size_t b_sample_size = b.strides_[0] * sizeof(type);
+    size_t a_sample_size = a.strides_[0] * sizeof(float);
+    size_t b_sample_size = b.strides_[0] * sizeof(float);
     for (size_t i = 0; i < num_samples; ++i) {
-        const type* a_src = reinterpret_cast<type*>(a.data_) + i * a.strides_[0];
-        const type* b_src = reinterpret_cast<type*>(b.data_) + i * b.strides_[0];
-        type* output_dst = reinterpret_cast<type*>(ret.data()) + i * (a.strides_[0] + b.strides_[0]);
+        const float* a_src = reinterpret_cast<float*>(a.data_) + i * a.strides_[0];
+        const float* b_src = reinterpret_cast<float*>(b.data_) + i * b.strides_[0];
+        float* output_dst = reinterpret_cast<float*>(ret.data()) + i * (a.strides_[0] + b.strides_[0]);
         cudaMemcpyAsync(output_dst, a_src, a_sample_size, cudaMemcpyDeviceToDevice);
         cudaMemcpyAsync(output_dst + a.strides_[0], b_src, b_sample_size, cudaMemcpyDeviceToDevice);
     }
@@ -2011,103 +1933,56 @@ TensorImpl TensorOpsCUDA::concat(const TensorImpl& a , const TensorImpl& b, int3
     size_t W = a_shape[3];
     size_t H_b = b_shape[2];
     for (size_t i = 0; i < N; ++i) {
-        for (size_t c = 0; c < C; ++c) {
-            const type* a_src = reinterpret_cast<const type*>(a.data_) +
-                i * a.strides_[0] + c * a.strides_[1];
-            const type* b_src = reinterpret_cast<const type*>(b.data_) +
-                i * b.strides_[0] + c * b.strides_[1];
-            type* ret_dst = reinterpret_cast<type*>(ret.data()) +
-                i * ret.strides_[0] + c * ret.strides_[1];
-            cudaMemcpyAsync(
-                ret_dst,
-                a_src,
-                H_a * W * sizeof(type),
-                cudaMemcpyDeviceToDevice
-            );
-            cudaMemcpyAsync(
-                ret_dst + H_a * W,
-                b_src,
-                H_b * W * sizeof(type),
-                cudaMemcpyDeviceToDevice
-            );
-        }
+      for (size_t c = 0; c < C; ++c) {
+        const float* a_src = reinterpret_cast<const float*>(a.data_) +
+                             i * a.strides_[0] + c * a.strides_[1];
+        const float* b_src = reinterpret_cast<const float*>(b.data_) +
+                             i * b.strides_[0] + c * b.strides_[1];
+        float* ret_dst = reinterpret_cast<float*>(ret.data()) +
+                         i * ret.strides_[0] + c * ret.strides_[1];
+        cudaMemcpyAsync(ret_dst, a_src, H_a * W * sizeof(float),
+                        cudaMemcpyDeviceToDevice);
+        cudaMemcpyAsync(ret_dst + H_a * W, b_src, H_b * W * sizeof(float),
+                        cudaMemcpyDeviceToDevice);
+      }
     }
-
     cudaStreamSynchronize(stream);
     cudaStreamDestroy(stream);
-    return ret;
-    }
-  else{
-     throw std::invalid_argument("Unsupported dim, we only support last dim concat");
   }
+    return ret;
 }
 
-std::vector<TensorImpl> TensorOpsCUDA::concat_backward(const TensorImpl& grad, int32_t dim, int32_t a_dim_shape){
-  Shape grad_shape = grad.shape();
-  Shape output_shape_1 = grad.shape();
-  Shape output_shape_2 = grad.shape();
-  int32_t b_dim_shape = output_shape_2[dim] - a_dim_shape;
-  output_shape_1[dim] = a_dim_shape;
-  output_shape_2[dim] = b_dim_shape;
+std::vector<TensorImpl> TensorOpsCUDA::split(const TensorImpl& a ,int32_t splitSize,  int32_t dim, Shape a_shape, Shape b_shape) {
 
-  TensorImpl ret0 = TensorImpl::shape(output_shape_1, grad.device(), grad.type());
-  TensorImpl ret1 = TensorImpl::shape(output_shape_2, grad.device(), grad.type());
-  if (dim==grad_shape.size()-1){
-    const int64_t num_dims = output_shape_1.size();
-    int64_t inner_size = 1;
-    for (int i = 0; i < num_dims - 1; ++i) {
-        inner_size *= output_shape_1[i];
-    }
-    const int64_t a_dim_size = output_shape_1[dim];
-    const int64_t b_dim_size = output_shape_2[dim];
-    const int64_t concat_dim_size = a_dim_size + b_dim_size;
-    for (int64_t i = 0; i < inner_size; ++i) {
-        const float* grad_output_ptr = grad.data() + i * concat_dim_size;
-        float* grad_a_ptr = ret0.data_ + i * a_dim_size;
-        float* grad_b_ptr = ret1.data_ + i * b_dim_size;
-        cudaMemcpyAsync(
-            grad_a_ptr,
-            grad_output_ptr,
-            a_dim_size * sizeof(float),
-            cudaMemcpyDeviceToDevice
-        );
-        cudaMemcpyAsync(
-            grad_b_ptr,
-            grad_output_ptr + a_dim_size,
-            b_dim_size * sizeof(float),
-            cudaMemcpyDeviceToDevice
-        );
+  TensorImpl tensor_a = TensorImpl::shape(a_shape, a.device(), a.type());
+  TensorImpl tensor_b = TensorImpl::shape(b_shape, a.device(), a.type());
+  int outer_size = 1;
+  for (int i = 0; i < dim; i++) {
+    outer_size *= a.shape()[i];
+  }
+  int dimCount_ = a.shape_.size();
+  int inner_size = 1;
+  for (int i = dim + 1; i < dimCount_; i++) {
+    inner_size *= a.shape()[i];
+  }
+  const int blockSize = 256;
+  const int gridSize = (outer_size * inner_size + blockSize - 1) / blockSize;
+  int* d_shape;
+  int* d_strides;
+  cudaMalloc(&d_shape, dimCount_ * sizeof(int));
+  cudaMalloc(&d_strides, dimCount_ * sizeof(int));
+  cudaMemcpy(d_shape, a.shape_.data(), dimCount_ * sizeof(int),
+             cudaMemcpyHostToDevice);
+  cudaMemcpy(d_strides, a.strides_.data(), dimCount_ * sizeof(int),
+             cudaMemcpyHostToDevice);
 
-    }
-    }
-  else if (dim == 1 && grad_shape.size() == 4) {
-   const int64_t total_elements = grad.numel();
-    const int64_t N = grad_shape[0];
-    const int64_t a_block_size = ret0.strides_[0];
-    const int64_t b_block_size = ret1.strides_[0];
-    const int64_t grad_block_size = ret0.strides_[0] + ret1.strides_[0];
-    for (int64_t i = 0; i < N; ++i) {
-      const float* grad_ptr = grad.data() + i * grad_block_size;
-      float* grad_a_ptr = ret0.data_ + i * a_block_size;
-      float* grad_b_ptr = ret1.data_ + i * b_block_size;
-      cudaMemcpyAsync(
-          grad_a_ptr,
-          grad_ptr,
-          a_block_size * sizeof(float),
-          cudaMemcpyDeviceToDevice
-      );
-      cudaMemcpyAsync(
-          grad_b_ptr,
-          grad_ptr + ret0.strides_[0],
-          b_block_size * sizeof(float),
-          cudaMemcpyDeviceToDevice
-      );
-    }
-  }
-  else{
-      throw std::invalid_argument("Unsupported dim, we only support last dim concat and dim == 1 in NCHW dim");
-  }
-  return {ret0, ret1};
+  split_kernel<<<gridSize, blockSize>>>(a.data_, tensor_a.data_, tensor_b.data_,
+                                         d_strides, dim, splitSize,
+                                        outer_size, a.shape_[dim], inner_size);
+  cudaFree(d_shape);
+  cudaFree(d_strides);
+  CUDA_KERNEL_CHECK();
+  return {tensor_a,tensor_b};
 }
 
 TensorImpl TensorOpsCUDA::upsample_forward(const TensorImpl& a , int32_t scale_factor){

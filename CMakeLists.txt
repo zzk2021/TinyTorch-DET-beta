@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 project(TinyTorch)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(USE_CUDA "Use CUDA" ON)
@@ -19,7 +19,6 @@ message(STATUS "USE_OPENCV ${USE_OPENCV}")
 if (${USE_CUDA})
     add_definitions(-DUSE_CUDA)
 endif ()
-
 
 if (${USE_OPENCV})
     # you need set environment path called OpenCV_DIR, usually path/opencv/build

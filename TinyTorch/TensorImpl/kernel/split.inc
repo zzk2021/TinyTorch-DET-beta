@@ -78,3 +78,31 @@ __global__ void ppl_cukernel_concat_backward(
         output1[tid] = input_data[tid];
     }
 }
+
+
+__global__ void split_kernel(const float* input, float* output_a, float* output_b,  const int* input_strides,
+                             int dim, int splitSize, int outer_size, int dimSize, int inner_size) {
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  const int outer_idx = idx / inner_size;
+  const int inner_idx = idx % inner_size;
+
+  if (outer_idx >= outer_size) return;
+
+  const int input_offset_base = outer_idx * dimSize * input_strides[dim] + inner_idx;
+
+  const int output_a_offset = outer_idx * splitSize * input_strides[dim] + inner_idx;
+  const int output_b_offset = outer_idx * (dimSize - splitSize) * input_strides[dim] + inner_idx;
+
+  for (int i = 0; i < splitSize; i++) {
+    const int input_offset = input_offset_base + i * input_strides[dim];
+    const int output_offset = output_a_offset + i * input_strides[dim];
+    output_a[output_offset] = input[input_offset];
+  }
+
+  for (int i = splitSize; i < dimSize; i++) {
+    const int input_offset = input_offset_base + i * input_strides[dim];
+    const int output_offset = output_b_offset + (i - splitSize) * input_strides[dim];
+    output_b[output_offset] = input[input_offset];
+  }
+}

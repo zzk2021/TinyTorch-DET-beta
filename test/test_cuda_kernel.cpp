@@ -276,7 +276,7 @@ TEST(TEST_cuda_kernel, logSoftmax_fp16) {
  }
 }
 
-TEST(TEST_Function, concat_cuda) {
+TEST(TEST_cuda_kernel, concat_cuda) {
  Tensor x({
               {1.0f, 2.0f, 3.0f},
               {2.0f,2.5f,1.0f},

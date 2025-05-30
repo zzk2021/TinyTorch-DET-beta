@@ -3,7 +3,7 @@
  * @author 	: keith@robot9.me
  *
  */
-
+#include "traceback.h"
 #include "Function.h"
 #include "Objectdetection/Function_explore.h"
 #include "Objectdetection/header.h"
@@ -11,8 +11,8 @@
 #include <cassert>
 #include <set>
 #include <unordered_map>
-
 #include "Tensor.h"
+
 
 namespace TinyTorch {
 
@@ -269,12 +269,12 @@ std::vector<TensorImpl> FuncLeaf::backward(const TensorImpl& grad) {
   if (owner->grad_.data_->shape() != grad.shape()) {
     TensorImpl retGrad =
         TensorImpl::sum(grad, 0, owner->grad_.data_->dim() != 0);
-    assert(retGrad.shape() == owner->grad_.data_->shape());
+    ASSERT(retGrad.shape() == owner->grad_.data_->shape());
     *owner->grad_.data_ = std::move(retGrad);
     return {*owner->grad_.data_};
   }
 
-  assert(grad.shape() == owner->grad_.data_->shape());
+  ASSERT(grad.shape() == owner->grad_.data_->shape());
   *owner->grad_.data_ = grad;
   return {grad};
 }
@@ -376,7 +376,8 @@ TensorImpl FuncMask::forward(const std::vector<const Tensor*>& inputs) {
     // notice! we could not save tensor b grad, tensor b for mask can't backpropagation
     const Tensor& a = *inputs[0];
     const Tensor& b = *inputs[1];
-    assert(!b.isRequiresGrad() && "the mask must be no Grad");
+    ASSERT(!b.isRequiresGrad());
+    //ASSERT(!b.isRequiresGrad() && "the mask must be no Grad");
     Tensor a_in_place = Tensor({0},a.isRequiresGrad());
     saveForBackward({&a_in_place});
     auto ret = a.data().ops()->from_mask(a.data(), b.data());
@@ -417,115 +418,24 @@ TensorImpl FuncConCat::forward(const std::vector<const Tensor*>& inputs) {
     Tensor a_in_place = Tensor({0}, inputs[0]->isRequiresGrad());
     Tensor b_in_place = Tensor({0}, inputs[1]->isRequiresGrad());
     saveForBackward({&a_in_place, &b_in_place});
-    assert(inputs.size() == 2);
+    ASSERT(inputs.size() == 2);
     const Tensor& t1 = *inputs[0];
     const Tensor& t2 = *inputs[1];
-    const auto& shape1 = t1.data().shape();
-    const auto& shape2 = t2.data().shape();
-    assert(shape1.size() == shape2.size() && t1.device() == t2.device() && t1.type() == t2.type());
-    const int32_t concat_dim = dim_;
-    const int32_t ndims = shape1.size();
-    assert(concat_dim >= 0  || concat_dim < ndims);
-
-    for (int32_t i = 0; i < ndims; ++i) {
-        assert((i == concat_dim || shape1[i] == shape2[i]) && "Non-concat dimensions must be equal");
-    }
-
-    if (t1.device() == Device::CUDA){
-        return  t1.data().ops()->concat(t1.data(), t2.data(), dim_);
-    }
-
-    std::vector<int32_t> output_shape = shape1;
-    output_shape[concat_dim] += shape2[concat_dim];
-
-    TensorImpl output = TensorImpl::zeros(output_shape);
-    const size_t elem_size = sizeof(int32_t);
-    auto* out_ptr = output.data();
-    const auto* in1_ptr = t1.data().data();
-    const auto* in2_ptr = t2.data().data();
-
-    const size_t outer_size = std::accumulate(shape1.begin(), shape1.begin() + concat_dim,
-                                            1, std::multiplies<int32_t>());
-    const size_t inner_size = std::accumulate(shape1.begin() + concat_dim + 1, shape1.end(),
-                                            1, std::multiplies<int32_t>());
-    const size_t copy_size1 = shape1[concat_dim] * inner_size * elem_size;
-    const size_t copy_size2 = shape2[concat_dim] * inner_size * elem_size;
-
-    for (size_t i = 0; i < outer_size; ++i) {
-
-        memcpy(out_ptr, in1_ptr, copy_size1);
-        in1_ptr += copy_size1 / elem_size;
-        out_ptr += copy_size1 / elem_size;
-
-        memcpy(out_ptr, in2_ptr, copy_size2);
-        in2_ptr += copy_size2 / elem_size;
-        out_ptr += copy_size2 / elem_size;
-    }
-
-    return output;
+    return  t1.data().concat(t1.data(), t2.data(), dim_);
 }
 
 std::vector<TensorImpl> FuncConCat::backward(const TensorImpl& grad) {
     const auto& savedTensors = getSavedTensors();
     std::vector<TensorImpl> ret;
-
-    if (savedTensors.size() != 2) {
-        throw std::runtime_error("FuncConCat::backward expected 2 saved tensors");
-    }
-
+    ASSERT(savedTensors.size() == 2);
     const bool need_grad1 = savedTensors[0].isRequiresGrad();
     const bool need_grad2 = savedTensors[1].isRequiresGrad();
-
     if (!need_grad1 && !need_grad2) {
         return ret;
     }
-    if (grad.device() == Device::CUDA) {
-        auto grad_list = grad.ops()->concat_backward(grad, dim_, a_shape_);
-        if (need_grad1) ret.push_back(grad_list[0]);
-        if (need_grad2) ret.push_back(grad_list[1]);
-    } else {
-
-        std::vector<int> t1_shape = grad.shape();
-        std::vector<int> t2_shape = grad.shape();
-        t1_shape[dim_] = a_shape_;
-        t2_shape[dim_] = grad.shape()[dim_] - a_shape_;
-        const int32_t a = t1_shape[dim_];
-        const int32_t b = t2_shape[dim_];
-        const auto& grad_shape = grad.shape();
-
-        if (grad_shape[dim_] != a + b) {
-            throw std::runtime_error("Gradient dimension mismatch in ConCat backward");
-        }
-
-        TensorImpl grad1, grad2;
-        if (need_grad1) grad1 = TensorImpl::zeros(t1_shape);
-        if (need_grad2) grad2 = TensorImpl::zeros(t2_shape);
-
-        const size_t outer_size = std::accumulate(grad_shape.begin(), grad_shape.begin() + dim_, 1, std::multiplies<int32_t>());
-        const size_t inner_size = std::accumulate(grad_shape.begin() + dim_ + 1, grad_shape.end(), 1, std::multiplies<int32_t>());
-        const size_t elem_size = sizeof(int32_t);
-
-        auto grad_data = grad.data();
-        auto grad1_data = need_grad1 ? grad1.data() : nullptr;
-        auto grad2_data = need_grad2 ? grad2.data() : nullptr;
-
-        for (size_t i = 0; i < outer_size; ++i) {
-            const auto src = grad_data + i * (a + b) * inner_size;
-            if (need_grad1) {
-                auto dest1 = grad1_data + i * a * inner_size;
-                std::memcpy(dest1, src, a * inner_size * elem_size);
-            }
-            if (need_grad2) {
-                const auto src2 = src + a * inner_size;
-                auto dest2 = grad2_data + i * b * inner_size;
-                std::memcpy(dest2, src2, b * inner_size * elem_size);
-            }
-        }
-
-        if (need_grad1) ret.push_back(std::move(grad1));
-        if (need_grad2) ret.push_back(std::move(grad2));
-    }
-
+      auto grad_list = grad.split(grad, a_shape_, dim_,0);
+      if (need_grad1) ret.push_back(grad_list[0]);
+      if (need_grad2) ret.push_back(grad_list[1]);
     return ret;
 }
 
@@ -674,7 +584,7 @@ std::vector<TensorImpl> FuncMax::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
   if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
-      assert(savedTensors.size() == 1);
+      ASSERT(savedTensors.size() == 1);
       const auto& inputShape = savedTensors[0].data().shape();
       std::vector<int32_t> Indices_tuple;
       auto gradInput = TensorImpl::zeros(inputShape, grad.device());
@@ -778,7 +688,7 @@ std::vector<TensorImpl> FuncFlatten::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
   if (savedTensors[0].isRequiresGrad()) {
-    assert(grad.numel() == savedTensors[0].numel());
+    ASSERT(grad.numel() == savedTensors[0].numel());
     ret.push_back(TensorImpl::reshape(grad, savedTensors[0].shape()));
   }
   return ret;
@@ -793,7 +703,7 @@ std::vector<TensorImpl> FuncUnFlatten::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
   if (savedTensors[0].isRequiresGrad()) {
-    assert(grad.numel() == savedTensors[0].numel());
+    ASSERT(grad.numel() == savedTensors[0].numel());
     ret.push_back(TensorImpl::reshape(grad, savedTensors[0].shape()));
   }
   return ret;
@@ -808,7 +718,7 @@ std::vector<TensorImpl> FuncSqueeze::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
   if (savedTensors[0].isRequiresGrad()) {
-    assert(grad.numel() == savedTensors[0].numel());
+    ASSERT(grad.numel() == savedTensors[0].numel());
     ret.push_back(TensorImpl::reshape(grad, savedTensors[0].shape()));
   }
   return ret;
@@ -823,7 +733,7 @@ std::vector<TensorImpl> FuncUnsqueeze::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
   if (savedTensors[0].isRequiresGrad()) {
-    assert(grad.numel() == savedTensors[0].numel());
+    ASSERT(grad.numel() == savedTensors[0].numel());
     ret.push_back(TensorImpl::reshape(grad, savedTensors[0].shape()));
   }
   return ret;
@@ -838,7 +748,7 @@ std::vector<TensorImpl> FuncReshape::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
   if (savedTensors[0].isRequiresGrad()) {
-    assert(grad.numel() == savedTensors[0].numel());
+    ASSERT(grad.numel() == savedTensors[0].numel());
     ret.push_back(TensorImpl::reshape(grad, savedTensors[0].shape()));
   }
   return ret;
@@ -964,7 +874,7 @@ std::vector<TensorImpl> FuncLogSoftmax::backward(const TensorImpl& grad) {
 TensorImpl FuncMaxPool2D::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   auto& shape = inputs[0]->shape();
-  assert(shape.size() == 3 || shape.size() == 4);
+  ASSERT(shape.size() == 3 || shape.size() == 4);
   int32_t batch = (shape.size() == 4) ? shape[0] : 1;
   int32_t channels = (shape.size() == 4) ? shape[1] : shape[0];
   int32_t height = (shape.size() == 4) ? shape[2] : shape[1];
@@ -988,7 +898,7 @@ TensorImpl FuncMaxPool2D::forward(const std::vector<const Tensor*>& inputs) {
 std::vector<TensorImpl> FuncMaxPool2D::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   auto& shape = savedTensors[0].shape();
-  assert(shape.size() == 3 || shape.size() == 4);
+  ASSERT(shape.size() == 3 || shape.size() == 4);
   int32_t batch = (shape.size() == 4) ? shape[0] : 1;
   int32_t channels = (shape.size() == 4) ? shape[1] : shape[0];
   int32_t height = (shape.size() == 4) ? shape[2] : shape[1];
@@ -1018,9 +928,9 @@ TensorImpl FuncConv1D::forward(const std::vector<const Tensor*>& inputs) {
     auto& weight = inputs[1]->data();
     auto& bias = inputs[2]->data();
 
-    assert(input.dim() == 3);  // [batch, in_channels, length]
-    assert(weight.dim() == 3); // [out_channels, in_channels, kernel_size]
-    assert(input.shape()[1] == weight.shape()[1]); //
+    ASSERT(input.dim() == 3);  // [batch, in_channels, length]
+    ASSERT(weight.dim() == 3); // [out_channels, in_channels, kernel_size]
+    ASSERT(input.shape()[1] == weight.shape()[1]); //
 
     const int32_t batch = input.shape()[0];
     const int32_t outChannels = weight.shape()[0];
@@ -1036,8 +946,8 @@ TensorImpl FuncConv1D::forward(const std::vector<const Tensor*>& inputs) {
 
     auto ret = TensorImpl::matmulTrans(col_, colW, false, true);
     if (!bias.empty()) {
-        assert(bias.dim() == 1);
-        assert(bias.shape()[0] == outChannels);
+        ASSERT(bias.dim() == 1);
+        ASSERT(bias.shape()[0] == outChannels);
         ret += bias; // [batch, outLength, outChannels]
     }
     ret.reshape_({batch, outChannels, outLength});
@@ -1049,9 +959,9 @@ TensorImpl FuncConv2D::forward(const std::vector<const Tensor*>& inputs) {
   auto& input = inputs[0]->data();
   auto& weight = inputs[1]->data();
   auto& bias = inputs[2]->data();
-  assert(input.dim() == 4);
-  assert(weight.dim() == 4);
-  assert(input.shape()[1] == weight.shape()[1]);
+  ASSERT(input.dim() == 4);
+  ASSERT(weight.dim() == 4);
+  ASSERT(input.shape()[1] == weight.shape()[1]);
   int32_t batch = input.shape()[0];
   int32_t outChannels = weight.shape()[0];
   // int32_t inChannels = weight.shape()[1];
@@ -1064,8 +974,8 @@ TensorImpl FuncConv2D::forward(const std::vector<const Tensor*>& inputs) {
   auto colW = TensorImpl::reshape(weight, {outChannels, -1});
   auto ret = TensorImpl::matmulTrans(col_, colW, false, true);
   if (!bias.empty()) {
-    assert(bias.dim() == 1);
-    assert(bias.shape()[0] == outChannels);
+    ASSERT(bias.dim() == 1);
+    ASSERT(bias.shape()[0] == outChannels);
     ret += bias;
   }
   ret.reshape_({batch, outChannels, outH, outW});
@@ -1143,7 +1053,7 @@ TensorImpl FuncLayerNorm::forward(const std::vector<const Tensor*>& inputs) {
   auto& bias = inputs[2]->data();
 
   auto& shape = input.shape();
-  assert(shape.size() == 3);
+  ASSERT(shape.size() == 3);
   viewShape_ = {1, 1, shape[2]};
   Tensor mean;
   Tensor var;
@@ -1181,7 +1091,7 @@ TensorImpl FuncBatchNorm::forward(const std::vector<const Tensor*>& inputs) {
   auto& bias = inputs[2]->data();
 
   auto& shape = input.shape();
-  assert(shape.size() == 3 || shape.size() == 4);
+  ASSERT(shape.size() == 3 || shape.size() == 4);
 
   if (shape.size() == 3) {
     dims_ = {0, 2};
@@ -1276,7 +1186,7 @@ TensorImpl FuncBCELossWithSigmoid::forward(const std::vector<const Tensor*>& inp
   saveForBackward(inputs);
   Tensor input = *(inputs[0]);
   Tensor target = *(inputs[1]);
-  auto ret = relu(input).data() - target.data() * input.data() +
+  auto ret = TensorImpl::clampMin(inputs[0]->data(), 0)  - target.data() * input.data() +
        TensorImpl::log(1 + TensorImpl::exp(0 - TensorImpl::abs(input.data())));
   switch (reduction_) {
     case MEAN:
@@ -1383,7 +1293,7 @@ std::vector<TensorImpl> FuncMSELoss::backward(const TensorImpl& grad) {
 
 TensorImpl FuncNLLLoss::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
-  assert(inputs[1]->dim() == 1);
+  ASSERT(inputs[1]->dim() == 1);
   auto batchSize = (int32_t)inputs[0]->shape()[0];
   auto idx = TensorImpl::arange(0, (float)batchSize, 1.f, inputs[0]->device());
   auto ret = -1 * inputs[0]->data().index({idx, inputs[1]->data()});

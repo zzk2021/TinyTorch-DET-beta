@@ -1376,22 +1376,63 @@ TensorImpl TensorOpsCPU::leakyrelu_backward(const TensorImpl&
 }
 
 TensorImpl TensorOpsCPU::concat(const TensorImpl& a , const TensorImpl& b, int32_t dim_){
+  Shape shape1 = a.shape();
+  Shape shape2 = b.shape();
+  std::vector<int32_t> output_shape = shape1;
+  output_shape[dim_] += shape2[dim_];
+  TensorImpl output = TensorImpl::zeros(output_shape);
+  const size_t elem_size = sizeof(int32_t);
+  auto* out_ptr = output.data();
+  const auto* in1_ptr = a.data();
+  const auto* in2_ptr = b.data();
+  const size_t outer_size = std::accumulate(shape1.begin(), shape1.begin() + dim_,
+                                            1, std::multiplies<int32_t>());
+  const size_t inner_size = std::accumulate(shape1.begin() + dim_ + 1, shape1.end(),
+                                            1, std::multiplies<int32_t>());
+  const size_t copy_size1 = shape1[dim_] * inner_size * elem_size;
+  const size_t copy_size2 = shape2[dim_] * inner_size * elem_size;
 
-    throw std::runtime_error("We have not implement in CPU yet");
+  for (size_t i = 0; i < outer_size; ++i) {
+
+    memcpy(out_ptr, in1_ptr, copy_size1);
+    in1_ptr += copy_size1 / elem_size;
+    out_ptr += copy_size1 / elem_size;
+
+    memcpy(out_ptr, in2_ptr, copy_size2);
+    in2_ptr += copy_size2 / elem_size;
+    out_ptr += copy_size2 / elem_size;
+  }
+  return output;
 }
 
-std::vector<TensorImpl> TensorOpsCPU::concat_backward(const TensorImpl& a , int32_t dim_, int32_t a_shape){
-    throw std::runtime_error("We have not implement in CPU yet");
-}
-std::pair<TensorImpl, TensorImpl> TensorOpsCPU::split(
-    const TensorImpl& input,
-    int32_t split_size0,
-    int32_t split_size1,
-    int32_t dim)
+std::vector<TensorImpl> TensorOpsCPU::split(
+    const TensorImpl& t,
+    int32_t splitSize,
+    int32_t dim,
+    Shape t1_shape,
+    Shape t2_shape)
 {
-    throw std::runtime_error("We have not implement in CPU yet");
-
- }
+  TensorImpl grad1, grad2;
+  grad1 = TensorImpl::zeros(t1_shape);
+  grad2 = TensorImpl::zeros(t2_shape);
+  const size_t outer_size = std::accumulate( t.shape_.begin(),  t.shape_.begin() + dim, 1, std::multiplies<int32_t>());
+  const size_t inner_size = std::accumulate( t.shape_.begin() + dim + 1, t.shape_.end(), 1, std::multiplies<int32_t>());
+  const size_t elem_size = sizeof(int32_t);
+  auto grad_data = t.data();
+  auto grad1_data = grad1.data();
+  auto grad2_data =  grad2.data();
+  int a = grad1.shape_[dim];
+  int b = grad2.shape_[dim];
+  for (size_t i = 0; i < outer_size; ++i) {
+    const auto src = grad_data + i * t.shape_[dim] * inner_size;
+      auto dest1 = grad1_data + i * a * inner_size;
+      copyOnDevice(dest1, src, a * inner_size * elem_size);
+      const auto src2 = src + a * inner_size;
+      auto dest2 = grad2_data + i * b * inner_size;
+      copyOnDevice(dest2, src2, b * inner_size * elem_size);
+  }
+  return {grad1, grad2};
+}
 
 TensorImpl TensorOpsCPU::flash_attention_(const TensorImpl& Q, const TensorImpl& K,     \
                const TensorImpl& V , int32_t head) {

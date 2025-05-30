@@ -5,7 +5,7 @@
  */
 
 #include "TensorImpl_base.h"
-
+#include "../traceback.h"
 #include "TensorImpl.h"
 
 namespace TinyTorch {
@@ -184,6 +184,7 @@ void TensorOperations::error(const char *where, TensorError error) {
   }
 
 #ifdef DEBUG
+  ASSERT(false);
   abort();
 #endif
 }

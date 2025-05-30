@@ -100,7 +100,6 @@ void DatasetMNIST::loadImages(const std::string& path) {
     }
   }
   delete[] tmp;
-
   ifs.close();
 }
 
@@ -114,7 +113,6 @@ void DatasetMNIST::loadLabels(const std::string& path) {
   ifs.read(p, 4);
   auto magicNumber = toInt32(p);
   assert(magicNumber == 0x801);
-
   ifs.read(p, 4);
   auto size = toInt32(p);
   labels_.resize(size);
@@ -130,19 +128,20 @@ cv::Mat readImage(const std::string& image_path) {
     #ifdef USE_OPENCV
       cv::Mat image = cv::imread(image_path, cv::IMREAD_COLOR);
       if (image.empty()) {
-        throw std::runtime_error("Failed to open image file: "
-                                 + image_path);
+        LOGE("Failed to open image file: %s", image_path.c_str());
+        throw std::runtime_error("Failed to open image file: " + image_path);
       }
       return image;
     #else
-      throw std::out_of_range("We only use opencv to read image, "
+      throw std::runtime_error("We only use opencv to read image, "
       "please install opencv");
     #endif
 }
 
 std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
   if (idx >= size_) {
-    throw std::out_of_range("Index out of range");
+    LOGE("Index out of range");
+    throw std::runtime_error("Index out of range");
   }
   const std::string& line = annotation_lines_[idx];
   std::istringstream iss(line);
@@ -193,7 +192,8 @@ std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
 
 std::vector<Tensor> DatasetCIFAR10::getItem(size_t idx) {
   if (idx >= size_) {
-    throw std::out_of_range("Index out of range");
+    LOGE("Index out of range");
+    throw std::runtime_error("Index out of range");
   }
   const std::string& line = annotation_lines_[idx];
   std::istringstream iss(line);
@@ -225,17 +225,20 @@ DatasetYOLO::DatasetYOLO(
     : transform_(transform){
   std::ifstream infile(annotation_path);
   if (!infile.is_open()) {
-    throw std::runtime_error("Can't open the file" + annotation_path);
+    LOGE("Can't open the file : %s", annotation_path.c_str());
+    return;
   }
   std::string line;
   if (std::getline(infile, line)) {
     std::istringstream iss(line);
     iss >> max_targets_ >> num_classes_;
     if (iss.fail() || max_targets_ <= 0 || num_classes_ <= 0) {
-      throw std::runtime_error("invaild max_targets or num_class");
+      LOGE("invaild num_class or max_targets");
+      return;
     }
   } else {
-    throw std::runtime_error("annotation file is not correct");
+      LOGE("annotation file is not correct");
+      return;
   }
   while (std::getline(infile, line)) {
     annotation_lines_.push_back(line);
@@ -251,17 +254,20 @@ DatasetCIFAR10::DatasetCIFAR10(
 
   std::ifstream infile(annotation_path);
   if (!infile.is_open()) {
-    throw std::runtime_error("Can't open the file" + annotation_path);
+    LOGE("Cannot open file: %s", annotation_path.c_str());
+    return;
   }
   std::string line;
   if (std::getline(infile, line)) {
     std::istringstream iss(line);
     iss  >> num_classes_;
     if (iss.fail() || num_classes_ <= 0) {
-      throw std::runtime_error("invaild  num_class");
+      LOGE("invaild num_class");
+      return;
     }
   } else {
-    throw std::runtime_error("annotation file is not correct");
+      LOGE("annotation file is not correct");
+      return;
   }
   while (std::getline(infile, line)) {
     annotation_lines_.push_back(line);

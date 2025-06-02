@@ -107,7 +107,8 @@ class Tensor {
   void operator-=(const float &other);
   void operator*=(const float &other);
   void operator/=(const float &other);
-
+  void relu();
+  void leakyrelu();
 
   Tensor sin() const;
   Tensor cos() const;

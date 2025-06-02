@@ -1079,7 +1079,7 @@ __global__ void kTranspose(T* __restrict__ out,
 }
 
 template <typename T>
-__global__ void kIndex(float* retData, const TensorCudaCtx<T> t,
+__global__ void kIndex(T* retData, const TensorCudaCtx<T> t,
                        const FixedVector<float*> indices, int dimStride,
                        int len, int n) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1088,7 +1088,7 @@ __global__ void kIndex(float* retData, const TensorCudaCtx<T> t,
     cuGetSubIndices(subIndices, t.shape_, indices.data, index, len);
     int32_t dataIdx = cuIndicesToOffset(t.strides_, subIndices, t.dimCount_);
     memcpy(&retData[dimStride * index], &t.data_[dataIdx],
-           dimStride * sizeof(float));
+           dimStride * sizeof(T));
   }
 }
 template <typename T>

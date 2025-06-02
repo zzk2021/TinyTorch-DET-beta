@@ -24,6 +24,8 @@ namespace TinyTorch {
     }                                                                   \
   } while (0)
 
+
+
 #define TENSOR_CHECK_DEVICE_RET(a, b, ret)                                 \
   do {                                                                     \
     if ((a).device() != (b).device()) {                                    \
@@ -32,10 +34,10 @@ namespace TinyTorch {
     }                                                                      \
   } while (0)
 
-#define TENSOR_CHECK_DTYPE_RET(a, b, ret)                                 \
+#define TENSOR_CHECK_DTYPE_RET(a, b, ret)                                  \
   do {                                                                     \
-    if ((a).type() != (b).type()) {                                    \
-      TensorOperations::error(__FUNCTION__, TensorError_DeviceNotAligned); \
+    if ((a).type() != (b).type()) {                                        \
+      TensorOperations::error(__FUNCTION__, TensorError_TypeNotAligned);   \
       return ret;                                                          \
     }                                                                      \
   } while (0)
@@ -381,7 +383,8 @@ void TensorImpl::to_(Device device) {
   if (type_ != Dtype::float32){
           type_ = Dtype::float32;
           initData();
-          oldStorage0->ops_->convertTypeOnDevice(data_, oldData0 ,elemCount_, oldType, type_);
+          oldStorage0->ops_->convertTypeOnDevice(data_, oldData0,
+            elemCount_, oldType, type_);
   }
 
   auto oldStorage = storage_;
@@ -397,6 +400,26 @@ void TensorImpl::to_(Device device) {
       ops_->copyHostToDevice(data_, oldData, elemCount_ * sizeof(float));
     }
   }
+}
+TensorImpl TensorImpl::to(Dtype T) {
+  if (type_ == T) {
+     return *this;
+  }
+  if (device_ == Device::CPU) {
+    throw std::runtime_error("We only support data type in CUDA, please change the data device to CUDA");
+  }
+  TensorImpl ret;
+  ret.dimCount_ = dimCount_;
+  ret.elemCount_ = elemCount_;
+  ret.shape_ = shape_;
+  ret.strides_ = strides_;
+  ret.type_ = T;
+  ret.device_ = device_;
+  ret.initData();
+  if (!empty()) {
+      ret.ops_->convertTypeOnDevice(ret.data_, data_ ,elemCount_, type_, T);
+    }
+  return ret;
 }
 
 void TensorImpl::to_(Dtype T) {

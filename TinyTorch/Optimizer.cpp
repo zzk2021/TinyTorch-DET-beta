@@ -38,7 +38,7 @@ void Optimizer::initCache(std::vector<TensorImpl> &cache, bool setZero) {
   if (setZero) {
     for (int32_t i = 0; i < parameters_.size(); i++) {
       cache[i] =
-          TensorImpl::zeros(parameters_[i]->shape(), parameters_[i]->device());
+          TensorImpl::zeros(parameters_[i]->shape(), parameters_[i]->device(), parameters_[i]->type());
     }
   }
 }
@@ -152,6 +152,7 @@ void AdaDelta::doStep() {
   for (int32_t i = 0; i < parameters_.size(); i++) {
     auto &param = parameters_[i];
     auto grad = getDecayedGrad(param);
+    auto dtype = grad.type();
     auto &v = squareAvg_[i];
     auto &u = accDelta_[i];
     v = rho_ * v + (1.f - rho_) * grad * grad;

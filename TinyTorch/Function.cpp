@@ -910,7 +910,7 @@ std::vector<TensorImpl> FuncMaxPool2D::backward(const TensorImpl& grad) {
   std::vector<TensorImpl> ret;
   if (savedTensors[0].isRequiresGrad()) {
     auto gradCol = TensorImpl::zeros(
-        {grad.numel(), kernelSize_.h * kernelSize_.w}, grad.device());
+        {grad.numel(), kernelSize_.h * kernelSize_.w}, grad.device(),grad.type());
     auto gradIdx =
         TensorImpl::arange(0, (float)grad.numel(), 1.f, grad.device());
     gradCol.indexPut_({gradIdx, maxIndices_}, grad);
@@ -1311,7 +1311,7 @@ TensorImpl FuncNLLLoss::forward(const std::vector<const Tensor*>& inputs) {
 std::vector<TensorImpl> FuncNLLLoss::backward(const TensorImpl& grad) {
   const auto& savedTensors = getSavedTensors();
   auto batchSize = (int32_t)savedTensors[0].shape()[0];
-  auto retGrad = TensorImpl::zeros(savedTensors[0].shape(), grad.device());
+  auto retGrad = TensorImpl::zeros(savedTensors[0].shape(), grad.device(), savedTensors[0].type());
   auto idx =
       TensorImpl::arange(0, (float)batchSize, 1.f, savedTensors[0].device());
   retGrad.indexPut_({idx, savedTensors[1].data()}, -1.f);

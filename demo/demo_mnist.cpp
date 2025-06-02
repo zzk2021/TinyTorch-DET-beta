@@ -45,6 +45,7 @@ void train(json &args, nn::Module &model, Device device,
   Timer timer;
   timer.start();
   for (auto [batchIdx, batch] : dataLoader) {
+
     auto &data = batch[0].to(device);
     auto &target = batch[1].to(device);
 

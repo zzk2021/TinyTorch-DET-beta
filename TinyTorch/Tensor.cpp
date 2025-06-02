@@ -281,6 +281,14 @@ void Tensor::operator/=(const float &other) {
   *this = Function::div(*this, scalar(other));
 }
 
+void Tensor::relu() {
+  *this = Function::relu(*this);
+}
+
+void Tensor::leakyrelu() {
+  *this = Function::leakyrelu(*this);
+}
+
 Tensor Tensor::sin() const { return Function::sin(*this); }
 
 Tensor Tensor::cos() const { return Function::cos(*this); }
@@ -352,7 +360,7 @@ void Tensor::initAutograd(bool requiresGrad,
     gradMeta_ = std::make_shared<AutogradMeta>();
     gradMeta_->setGradFunc(gradFunc);
     *gradMeta_->grad_.data_ =
-        TensorImpl::shape(data_->shape(), data_->device());
+        TensorImpl::shape(data_->shape(), data_->device(),data_->type());
 
     if (isLeaf()) {
       gradMeta_->gradLeaf_ = std::make_shared<FuncLeaf>();
@@ -407,7 +415,7 @@ void AutogradMeta::backward(const Tensor &grad) {
 
   std::unordered_map<std::shared_ptr<Function>, TensorImpl> inputs = {
       {gradFunc_,
-       grad.empty() ? TensorImpl::scalar(1.f, grad_.device()) : *grad.data_}};
+       grad.empty() ? TensorImpl::scalar(1.f, grad_.device(), grad_.type()) : *grad.data_}};
   for (auto &currFunc : backwardGraph_) {
     auto outputs = currFunc->callBackward(inputs[currFunc]);
 

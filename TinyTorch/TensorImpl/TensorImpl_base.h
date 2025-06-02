@@ -67,6 +67,7 @@ typedef enum TensorError_ {
   TensorError_ShapeNotAligned,
   TensorError_DeviceNotAligned,
   TensorError_NotSupport,
+  TensorError_TypeNotAligned
 } TensorError;
 
 typedef enum ShapeCompatible_ {

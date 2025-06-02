@@ -395,8 +395,14 @@ TensorImpl TensorOpsCUDA::opPairBroadcast(const TensorImpl& a,
     return opPair<OP>(a, b);
   }
 
-  auto result = TensorImpl::shape(retShape, a.device_);
-  broadcastImpl<OP>(result, a, b);
+  auto result = TensorImpl::shape(retShape, a.device_,a.type_);
+
+  if (a.type_ == Dtype::bfloat16)
+    broadcastImpl<OP, __nv_bfloat16>(result, a, b);
+  else if (a.type_ == Dtype::float32)
+    broadcastImpl<OP>(result, a, b);
+  if (a.type_ == Dtype::float16)
+    broadcastImpl<OP, half>(result, a, b);
   return result;
 }
 
@@ -545,9 +551,9 @@ void TensorOpsCUDA::convertTypeOnDevice(void* dst, void* src, size_t count, Dtyp
             static_cast<half*>(src), static_cast<float*>(dst), count);
     } else if (Ti == To) {
         if (Ti == Dtype::float32)
-            cudaMemcpy(dst, src, count * sizeof(float), cudaMemcpyDeviceToDevice);
+            copyHostToDevice(dst, src, count * sizeof(float));
         else if (Ti == Dtype::bfloat16 || Ti == Dtype::float16)
-            cudaMemcpy(dst, src, count * sizeof(half), cudaMemcpyDeviceToDevice);
+            copyHostToDevice(dst, src, count * sizeof(half));
     } else {
         LOGW("Type conversion from %d to %d is not supported, keeping the same type",
              Ti, To);
@@ -1232,15 +1238,27 @@ TensorImpl TensorOpsCUDA::index(
   for (auto i = len; i < t.dimCount_; i++) {
     retShape.push_back(t.shape_[i]);
   }
-  auto retTensor = TensorImpl::shape(retShape, t.device_);
+  auto retTensor = TensorImpl::shape(retShape, t.device_, t.type_);
 
   FixedVector<float*> indicesData{};
   for (int32_t i = 0; i < len; i++) {
     indicesData.data[i] = indices[i].get().data_;
   }
-  auto ctxT = getTensorCtx(t);
-  kIndex<<<getGridSize(fistDim), getBlockSize()>>>(
-      retTensor.data_, ctxT, indicesData, dimStride, len, fistDim);
+  if (t.type() == Dtype::bfloat16) {
+    auto ctxT = getTensorCtx<__nv_bfloat16>(t);
+    kIndex<<<getGridSize(fistDim), getBlockSize()>>>(
+        reinterpret_cast<__nv_bfloat16*>(retTensor.data_), ctxT, indicesData, dimStride, len, fistDim);
+  }
+  if (t.type() == Dtype::float16) {
+    auto ctxT = getTensorCtx<half>(t);
+    kIndex<<<getGridSize(fistDim), getBlockSize()>>>(
+        reinterpret_cast<half*>(retTensor.data_), ctxT, indicesData, dimStride, len, fistDim);
+  }
+  if (t.type() == Dtype::float32) {
+    auto ctxT = getTensorCtx(t);
+    kIndex<<<getGridSize(fistDim), getBlockSize()>>>(
+        retTensor.data_, ctxT, indicesData, dimStride, len, fistDim);
+  }
   CUDA_KERNEL_CHECK();
   return retTensor;
 }

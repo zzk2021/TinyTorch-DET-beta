@@ -49,8 +49,13 @@ std::unordered_map<FunctionType, std::string> Function::funcTypeToString_ = {
     FUNC_ENUM_TO_STRING(Function_BatchNorm),
     FUNC_ENUM_TO_STRING(Function_MSELoss),
     FUNC_ENUM_TO_STRING(Function_NLLLoss),
+    FUNC_ENUM_TO_STRING(Function_ChangeType),
     OBJDECT_EXPLORE_funcTypeToString_()
 };
+
+Tensor Function::changetype(const Tensor& input, Dtype T) {
+  return std::make_shared<FuncChangeType>(T, input.type())->callForward({&input});
+}
 
 Tensor Function::upsample(const Tensor& input, int32_t scale_factor) {
   return std::make_shared<FuncUpSample>(scale_factor)->callForward({&input});
@@ -439,6 +444,22 @@ std::vector<TensorImpl> FuncConCat::backward(const TensorImpl& grad) {
     return ret;
 }
 
+TensorImpl FuncChangeType::forward(const std::vector<const Tensor*>& inputs) {
+  Tensor a_in_place = Tensor::scalar(0, inputs[0]->isRequiresGrad());
+  saveForBackward({&a_in_place});
+  return inputs[0]->data().to(T_);
+}
+
+std::vector<TensorImpl> FuncChangeType::backward(const TensorImpl& grad) {
+  const auto& savedTensors = getSavedTensors();
+  std::vector<TensorImpl> ret  ;
+  if (savedTensors[0].isRequiresGrad()) {
+    ret.push_back(grad.to(Ori_T_));
+  }
+  return ret;
+}
+
+
 TensorImpl FuncAdd::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   return inputs[0]->data() + inputs[1]->data();
@@ -580,17 +601,15 @@ TensorImpl FuncMax::forward(const std::vector<const Tensor*>& inputs) {
 }
 
 std::vector<TensorImpl> FuncMax::backward(const TensorImpl& grad) {
-
   const auto& savedTensors = getSavedTensors();
   std::vector<TensorImpl> ret;
   if (!savedTensors.empty() && savedTensors[0].isRequiresGrad()) {
       ASSERT(savedTensors.size() == 1);
       const auto& inputShape = savedTensors[0].data().shape();
       std::vector<int32_t> Indices_tuple;
-      auto gradInput = TensorImpl::zeros(inputShape, grad.device());
-      auto maxIndices = maxIndices_;
-        int32_t elemSize = maxIndices.numel();
-        const auto& maxIndicesShape = maxIndices.shape();
+      auto gradInput = TensorImpl::zeros(inputShape, grad.device(),grad.type());
+        int32_t elemSize = maxIndices_.numel();
+        const auto& maxIndicesShape = maxIndices_.shape();
         std::vector<int32_t> indices(maxIndicesShape.size(), 0);
         std::vector<int32_t> strides(maxIndicesShape.size(), 1);
         for (int i = maxIndicesShape.size() - 2; i >= 0; --i) {
@@ -603,7 +622,7 @@ std::vector<TensorImpl> FuncMax::backward(const TensorImpl& grad) {
                 coord[dim] = remainder / strides[dim];
                 remainder = remainder % strides[dim];
             }
-            int32_t maxIndex = maxIndices.data()[n];
+            int32_t maxIndex = maxIndices_.data()[n];
             std::vector<int32_t> gradInputIndices;
                 for (size_t dim = 0; dim < coord.size(); ++dim) {
                     if (dim == dim_)
@@ -852,7 +871,8 @@ std::vector<TensorImpl> FuncSoftmax::backward(const TensorImpl& grad) {
 }
 
 TensorImpl FuncLogSoftmax::forward(const std::vector<const Tensor*>& inputs) {
-  saveForBackward(inputs);
+  Tensor a_in_place = Tensor::scalar(0,inputs[0]->isRequiresGrad());
+  saveForBackward({&a_in_place});
   auto max = TensorImpl::max(inputs[0]->data(), dim_, true).first;
   auto logSumExp = TensorImpl::log(
       TensorImpl::sum(TensorImpl::exp(inputs[0]->data() - max), dim_, true));
@@ -888,14 +908,14 @@ TensorImpl FuncMaxPool2D::forward(const std::vector<const Tensor*>& inputs) {
 
   auto maxRet = TensorImpl::max(col, 1);
   maxIndices_ = maxRet.second;
+
   auto ret = maxRet.first;
   ret.reshape_({batch, channels, outH, outW});
   return ret;
 }
 
-
-
 std::vector<TensorImpl> FuncMaxPool2D::backward(const TensorImpl& grad) {
+  auto poi = grad.to(Dtype::float32).toList();
   const auto& savedTensors = getSavedTensors();
   auto& shape = savedTensors[0].shape();
   ASSERT(shape.size() == 3 || shape.size() == 4);
@@ -906,7 +926,6 @@ std::vector<TensorImpl> FuncMaxPool2D::backward(const TensorImpl& grad) {
 
   auto outH = (height - kernelSize_.h + 2 * padding_.h) / stride_.h + 1;
   auto outW = (width - kernelSize_.w + 2 * padding_.w) / stride_.w + 1;
-
   std::vector<TensorImpl> ret;
   if (savedTensors[0].isRequiresGrad()) {
     auto gradCol = TensorImpl::zeros(
@@ -1294,6 +1313,7 @@ std::vector<TensorImpl> FuncMSELoss::backward(const TensorImpl& grad) {
 TensorImpl FuncNLLLoss::forward(const std::vector<const Tensor*>& inputs) {
   saveForBackward(inputs);
   ASSERT(inputs[1]->dim() == 1);
+  ASSERT(inputs[0]->type() == inputs[1]->type());
   auto batchSize = (int32_t)inputs[0]->shape()[0];
   auto idx = TensorImpl::arange(0, (float)batchSize, 1.f, inputs[0]->device());
   auto ret = -1 * inputs[0]->data().index({idx, inputs[1]->data()});

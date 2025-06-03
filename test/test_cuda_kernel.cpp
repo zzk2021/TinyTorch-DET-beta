@@ -240,28 +240,69 @@ TEST(TEST_cuda_kernel, linear_fp16) {
 TEST(TEST_cuda_kernel, max_pool2d_fp16) {
  Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
  auto output1 = Function::maxPool2d(a, 2, 2);
-
+ auto io = output1.sum();
+ auto y90 = io.item();
+ io.backward();
  auto p = output1.data().toList();
- auto output = Function::maxPool2d(a.to(Dtype::float16), 2, 2);
- output.to(Dtype::float32);
- auto p1 = output.data().toList();
+ Tensor b = Tensor(TensorImpl::zerosLike(a.data(),Device::CUDA) + a.data(),true);
+ b.to(Dtype::float16);
+ auto output = Function::maxPool2d(b, 2, 2);
+ auto sum_o = output.sum();
+ auto yu = sum_o.to(Dtype::float32).item();
+ sum_o.backward();
+ auto p1 = output.to(Dtype::float32).data().toList();
+ auto p_g = a.getGrad().toList();
+ auto p_11 = b.getGrad();
+ auto p1_g = p_11.to(Dtype::float32).toList();
+
  for (size_t i = 0; i < p.size(); ++i) {
-   ASSERT_NEAR(p[i], p1[i], 1e-2);
+   EXPECT_NEAR(p[i], p1[i], 1e-2);
+ }
+ for (size_t i = 0; i < p_g.size(); ++i) {
+
+   EXPECT_NEAR(p_g[i], p1_g[i], 1e-2);
  }
 }
 
 TEST(TEST_cuda_kernel, relu_fp16) {
  Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
  auto output1 = Function::relu(a);
+ output1.sum().backward();
  auto p = output1.data().toList();
- auto output = Function::relu(a.to(Dtype::float16));
+ auto pa = Tensor(TensorImpl::zerosLike(a.data(),Device::CUDA)+a.data(),true);
+ pa.to(Device::CUDA).to(Dtype::float16);
+ auto output = Function::relu(pa);
+ output.sum().backward();
  output.to(Dtype::float32);
  auto p1 = output.data().toList();
  for (size_t i = 0; i < p.size(); ++i) {
    ASSERT_NEAR(p[i], p1[i], 1e-2);
  }
+ auto l = pa.getGrad();
+ auto pl = l.to(Dtype::float32).toList();
+ auto pl1 = a.getGrad().toList();
+ for (size_t i = 0; i < p.size(); ++i) {
+   ASSERT_NEAR(pl[i], pl1[i], 1e-2);
+ }
 }
 
+TEST(TEST_cuda_kernel, max_fp16) {
+  Tensor a = Tensor(TensorImpl::randn({1,3,32,32},Device::CUDA),true);
+  auto output1 = Function::max(a,1,true);
+
+  Tensor b = Tensor(TensorImpl::zerosLike(a.data(),Device::CUDA) + a.data(),true);
+  EXPECT_THAT(a.toList(), b.toList());
+
+  b.to(Dtype::float16);
+  auto output = Function::max(b,1,true);
+  output.to(Dtype::float32);
+  auto p = output1.data().toList();
+  auto p1 = output.data().toList();
+  for (size_t i = 0; i < p.size(); ++i) {
+    ASSERT_NEAR(p[i], p1[i], 1e-2);
+  }
+
+}
 TEST(TEST_cuda_kernel, logSoftmax_fp16) {
  auto o = TensorImpl::ones({1,3,16,16});
  Tensor a = Tensor(TensorImpl::ones({1,3,16,16},Device::CUDA),true);
@@ -426,4 +467,58 @@ TEST(TEST_cuda_kernel, func_basic_im2col_col2im_1d) {
    EXPECT_EQ(r.shape(), input.shape());
    EXPECT_THAT(r.toList(), ElementsAre(2, 4, 6, 8));
  }
+}
+
+TEST(TEST_cuda_kernel, basic_im2col_col2im_fp16) {
+  auto input = TensorImpl({{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}, {13, 14, 15, 16}},Device::CUDA);
+  input.to_(Dtype::float16);
+  input.reshape_({1, 1, 4, 4});
+
+  auto col = input.im2col(2, 2, 0);
+  EXPECT_THAT(col.shape(), ElementsAre(4, 4));
+  EXPECT_THAT(col.to(Dtype::float32).toList(), ElementsAre(1, 2, 5, 6, 3, 4, 7, 8, 9, 10, 13, 14,
+                                        11, 12, 15, 16));
+  auto r = col.col2im(input.shape(), 2, 2, 0);
+  EXPECT_EQ(r.shape(), input.shape());
+  EXPECT_EQ(r.to(Dtype::float32).toList(), input.to(Dtype::float32).toList());
+
+  col = input.im2col(2, 3, 0);
+  EXPECT_THAT(col.shape(), ElementsAre(1, 4));
+  EXPECT_THAT(col.to(Dtype::float32).toList(), ElementsAre(1, 2, 5, 6));
+
+  r = col.col2im(input.shape(), 2, 3, 0);
+  EXPECT_EQ(r.shape(), input.shape());
+  EXPECT_THAT(r.to(Dtype::float32).toList(),
+              ElementsAre(1, 2, 0, 0, 5, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+
+  col = input.im2col(3, 2, 0);
+  EXPECT_THAT(col.shape(), ElementsAre(1, 9));
+  EXPECT_THAT(col.to(Dtype::float32).toList(), ElementsAre(1, 2, 3, 5, 6, 7, 9, 10, 11));
+
+  r = col.col2im(input.shape(), 3, 2, 0);
+  EXPECT_EQ(r.shape(), input.shape());
+  EXPECT_THAT(r.to(Dtype::float32).toList(),
+              ElementsAre(1, 2, 3, 0, 5, 6, 7, 0, 9, 10, 11, 0, 0, 0, 0, 0));
+}
+
+
+TEST(TEST_cuda_kernel, basic_indexing_fp16) {
+  TensorImpl x({{1, 2, 3}, {4, 5, 6}, {7, 8, 9}},Device::CUDA);
+  x.to_(Dtype::float16);
+
+  x.indexPut_(std::vector<int32_t>{1}, -1);
+  EXPECT_THAT(x.to(Dtype::float32).toList(), ElementsAre(1, 2, 3, -1, -1, -1, 7, 8, 9));
+
+  x.indexPut_(std::vector<int32_t>{1}, TensorImpl({4, 5, 6},Device::CUDA).to(Dtype::float16));
+  EXPECT_THAT(x.to(Dtype::float32).toList(), ElementsAre(1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  auto idx1 = TensorImpl({-1, 1},Device::CUDA);
+  auto idx2 = TensorImpl({2, -1},Device::CUDA);
+  x.indexPut_({idx1, idx2}, -1);
+  EXPECT_THAT(x.to(Dtype::float32).toList(), ElementsAre(1, 2, 3, 4, 5, -1, 7, 8, -1));
+
+  idx1 = TensorImpl({-1, 1},Device::CUDA);
+  idx2 = TensorImpl({2, -1},Device::CUDA);
+  x.indexPut_({idx1, idx2}, TensorImpl({1.2, 2.3},Device::CUDA).to(Dtype::float16));
+  EXPECT_THAT(x.to(Dtype::float32).toList(), ElementsAre(1, 2, 3, 4, 5, 2.3, 7, 8, 1.2));
 }

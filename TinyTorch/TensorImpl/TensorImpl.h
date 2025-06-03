@@ -118,7 +118,7 @@ class TensorImpl {
   void to_(Dtype T);
   TensorImpl to(Device device);
   TensorImpl to(Dtype T) ;
-
+  TensorImpl to(Dtype T) const;
   std::vector<float> toList() const;
   float item() const;
 

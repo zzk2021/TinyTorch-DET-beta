@@ -203,7 +203,7 @@ void TensorImpl::initData(const float *ptr, Device device) {
     return;
   }
   size_t size_storage =
-          type_ == Dtype::float32 ? sizeof(float) * elemCount_ :
+          type_ == Dtype::float32 ? 4 * elemCount_ :
           type_ == Dtype::float16 ? 2 * elemCount_ :
           type_ == Dtype::bfloat16 ? 2 * elemCount_ :
           1 * elemCount_ ;
@@ -279,7 +279,7 @@ TensorImpl TensorImpl::scalar(Device device, Dtype T) { return shape({}, device,
 
 TensorImpl TensorImpl::scalar(const float &value, Device device, Dtype T) {
   TensorImpl ret = shape({}, device, T);
-  ret.ops_->fillConstant_(ret.data_, value, 1);
+  ret.ops_->fillConstant_(ret.data_, value, 1, T);
   return ret;
 }
 
@@ -422,6 +422,26 @@ TensorImpl TensorImpl::to(Dtype T) {
   return ret;
 }
 
+TensorImpl TensorImpl::to(Dtype T) const{
+  if (type_ == T) {
+     return *this;
+  }
+  if (device_ == Device::CPU) {
+    throw std::runtime_error("We only support data type in CUDA, please change the data device to CUDA");
+  }
+  TensorImpl ret;
+  ret.dimCount_ = dimCount_;
+  ret.elemCount_ = elemCount_;
+  ret.shape_ = shape_;
+  ret.strides_ = strides_;
+  ret.type_ = T;
+  ret.device_ = device_;
+  ret.initData();
+  if (!empty()) {
+      ret.ops_->convertTypeOnDevice(ret.data_, data_ ,elemCount_, type_, T);
+    }
+  return ret;
+}
 void TensorImpl::to_(Dtype T) {
   if (type_ == T) {
     return;
@@ -1216,7 +1236,20 @@ void TensorImpl::indexPut_(const std::vector<int32_t> &indices, float val) {
     dataIdx += (idx >= 0 ? idx : idx + shape_[i]) * strides_[i];
   }
   int32_t dimStride = strides_[len - 1];
-  ops_->fillConstant_(&data_[dataIdx], val, dimStride);
+  if (this->type_ == Dtype::float16) {
+    float *out =
+        reinterpret_cast<float *>(&reinterpret_cast<half *>(data_)[dataIdx]);
+    ops_->fillConstant_(out, val, dimStride, Dtype::float16);
+  }
+  if (this->type_ == Dtype::bfloat16) {
+    float *out =
+        reinterpret_cast<float *>(&reinterpret_cast<nv_bfloat16 *>(data_)[dataIdx]);
+    ops_->fillConstant_(out, val,
+                        dimStride, Dtype::bfloat16);
+  }
+  if (this->type_ == Dtype::float32)
+    ops_->fillConstant_(&data_[dataIdx], val, dimStride);
+
 }
 
 void TensorImpl::indexPut_(const std::vector<int32_t> &indices,
@@ -1231,8 +1264,19 @@ void TensorImpl::indexPut_(const std::vector<int32_t> &indices,
   }
   int32_t dimStride = strides_[len - 1];
   assert(val.elemCount_ == dimStride);
-  copyToDevice(&data_[dataIdx], val.data_, dimStride * sizeof(float),
+  if (this->type() == Dtype::float16)
+    copyToDevice(&(reinterpret_cast<half*>(data_))[dataIdx], val.data_,
+                 dimStride * sizeof(half),
                val.device_);
+  else if (this->type() == Dtype::bfloat16)
+    copyToDevice(&(reinterpret_cast<nv_bfloat16*>(data_))[dataIdx], val.data_,
+                 dimStride * sizeof(nv_bfloat16),
+                  val.device_);
+  else
+    copyToDevice(&data_[dataIdx], val.data_,
+                 dimStride * sizeof(float),
+                  val.device_);
+
 }
 
 void TensorImpl::indexPut_(
@@ -1301,7 +1345,10 @@ TensorImpl TensorImpl::stack(
       TensorOperations::error(__FUNCTION__, TensorError_DeviceNotAligned);
       return {};
     }
-
+    if (t.type_ != t0.type_) {
+      TensorOperations::error(__FUNCTION__, TensorError_TypeNotAligned);
+      return {};
+    }
     if (t.shape() != t0.shape()) {
       TensorOperations::error(__FUNCTION__, TensorError_ShapeNotAligned);
       return {};
@@ -1311,7 +1358,7 @@ TensorImpl TensorImpl::stack(
   // init result shape
   Shape retShape = t0.shape();
   retShape.insert(retShape.begin() + targetDim, (int32_t)tensors.size());
-  TensorImpl retTensor = shape(retShape, t0.device_);
+  TensorImpl retTensor = shape(retShape, t0.device_, t0.type_);
 
   int32_t innerSize = 1;
   for (int32_t i = targetDim; i < t0.dimCount_; i++) {
@@ -1325,13 +1372,24 @@ TensorImpl TensorImpl::stack(
 
   for (int32_t i = 0; i < tensors.size(); i++) {
     const auto &t = tensors[i].get();
-    auto *srcPtr = t.data_;
-    auto dstPtr = retTensor.data_ + i * innerSize;
-    for (int32_t j = 0; j < outerSize; j++) {
-      retTensor.ops_->copyOnDevice(dstPtr, srcPtr, innerSize * sizeof(float));
-      srcPtr += innerSize;
-      dstPtr += tensors.size() * innerSize;
+    if (t.type() == Dtype::float16){
+        auto *srcPtr = reinterpret_cast<half*>(t.data_);
+        auto dstPtr = reinterpret_cast<half*>(retTensor.data_) + i * innerSize;
+        for (int32_t j = 0; j < outerSize; j++) {
+          retTensor.ops_->copyOnDevice(dstPtr, srcPtr, innerSize * sizeof(half));
+          srcPtr += innerSize;
+          dstPtr += tensors.size() * innerSize;
+        }
+    }else{
+        auto *srcPtr = t.data_;
+        auto dstPtr = retTensor.data_ + i * innerSize;
+        for (int32_t j = 0; j < outerSize; j++) {
+            retTensor.ops_->copyOnDevice(dstPtr, srcPtr, innerSize * sizeof(float));
+          srcPtr += innerSize;
+          dstPtr += tensors.size() * innerSize;
+        }
     }
+
   }
 
   return retTensor;

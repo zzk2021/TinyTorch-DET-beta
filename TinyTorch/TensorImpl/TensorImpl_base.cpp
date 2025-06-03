@@ -179,6 +179,9 @@ void TensorOperations::error(const char *where, TensorError error) {
     case TensorError_NotSupport:
       LOGE("[%s] Tensor error: function not support", where);
       break;
+    case TensorError_TypeNotAligned:
+      LOGE("[%s] Tensor error: type not aligned", where);
+      break;
     default:
       break;
   }

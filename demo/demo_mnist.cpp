@@ -8,18 +8,41 @@
 #include "tools/tools.h"
 using namespace TinyTorch;
 
+class fp32Net :public nn::Module {
+ public:
+  fp32Net() { registerModules({fc2}); }
+  Tensor forward(Tensor &x) override {
+    return x;
+  }
+ private:
+  nn::Linear fc2{128, 10};
+};
+
 // https://github.com/pytorch/examples/blob/main/mnist/main.py
 class Net : public nn::Module {
  public:
-  Net() { registerModules({conv1, conv21, dropout1, dropout2, fc1, fc2}); }
-
+  Net()
+  {
+    registerModules({conv1,conv21});
+    this->to(Device::CUDA);
+    this->to(Dtype::float16);
+    registerModule(dropout1);
+    registerModule(fc1);
+    registerModule(dropout2);
+    registerModule(fc2);
+    this->to(Device::CUDA);
+  }
   Tensor forward(Tensor &x) override {
     x = conv1(x);
     x = Function::relu(x);
+
     x = conv21(x);
+
     x = Function::maxPool2d(x, 2);
+    x = Function::changetype(x, Dtype::float32);
     x = dropout1(x);
     x = Tensor::flatten(x, 1);
+
     x = fc1(x);
     x = Function::relu(x);
     x = dropout2(x);
@@ -44,24 +67,21 @@ void train(json &args, nn::Module &model, Device device,
 
   Timer timer;
   timer.start();
+  const float loss_scale = 2.0f;
   for (auto [batchIdx, batch] : dataLoader) {
-
-    auto &data = batch[0].to(device);
+    auto &data = batch[0].to(device).to(Dtype::float16);
     auto &target = batch[1].to(device);
-
     optimizer.zeroGrad();
     Tensor output = model(data);
-    Tensor loss_all = Tensor::scalar(0, true);
-    loss_all.to(output.device());
-    for (int i=0;i< output.shape()[0];i+=1){
-      auto output_slic = output[std::vector<TinyTorch::Slice>{{i,i+1},{}}];
-      auto target_slic = target[std::vector<TinyTorch::Slice>{{i,i+1}}];
-      auto loss = Function::nllloss(output_slic, target_slic);
-      loss_all += loss;
+    auto loss = Function::nllloss(output, target);
+    loss = loss * loss_scale;
+    loss.backward();
+
+    for (auto& p : model.parameters()) {
+      if (p->isRequiresGrad()) {
+        p->getGrad().data() = p->getGrad().data() / loss_scale;
+      }
     }
-    loss_all = loss_all / (float)output.shape()[0];
-   // auto loss = Function::nllloss(output, target);
-    loss_all.backward();
     optimizer.step();
 
     if (batchIdx % args.at("logInterval").get<int>() == 0) {
@@ -71,8 +91,7 @@ void train(json &args, nn::Module &model, Device device,
       auto elapsed = (float)timer.elapseMillis() / 1000.f;  // seconds
       LOGD("Train Epoch: %d [%d/%d (%.0f%%)] Loss: %.6f, Elapsed: %.2fs", epoch,
            currDataCnt, totalDataCnt, 100.f * currDataCnt / (float)totalDataCnt,
-           loss_all.item(), elapsed);
-
+           loss.item(), elapsed);
       if (args.at("dryRun")) {
         break;
       }
@@ -88,8 +107,8 @@ void test(nn::Module &model, Device device, data::DataLoader &dataLoader) {
   auto correct = 0;
   withNoGrad {
     for (auto [batchIdx, batch] : dataLoader) {
-      auto &data = batch[0].to(device);
-      auto &target = batch[1].to(device);
+    auto &data = batch[0].to(device).to(Dtype::float16);
+    auto &target = batch[1].to(device);
       auto output = model(data);
       testLoss += Function::nllloss(output, target, SUM).item();
       auto pred = output.data().argmax(1, true);
@@ -108,8 +127,6 @@ void test(nn::Module &model, Device device, data::DataLoader &dataLoader) {
 }
 
 void demo_mnist() {
-
-
   LOGD("demo_mnist ...");
   Timer timer;
   timer.start();
@@ -135,12 +152,9 @@ void demo_mnist() {
     return;
   }
 
-  auto trainDataloader = data::DataLoader(trainDataset, args.at("batchSize"), true);
-  auto testDataloader = data::DataLoader(testDataset, args.at("testBatchSize"), true);
-
+  auto trainDataloader = data::DataLoader(trainDataset, args.at("batchSize"), true, false);
+  auto testDataloader = data::DataLoader(testDataset, args.at("testBatchSize"), true, false);
   auto model = Net();
-  model.to(device);
-
   auto optimizer = optim::AdaDelta(model.parameters(), args.at("lr"));
   auto scheduler = optim::lr_scheduler::StepLR(optimizer, 1, args.at("gamma"));
 

@@ -270,11 +270,7 @@ class YoloLoss : public nn::Module {
             }
             auto loss_conf   = (Function::bceLossWithSigmoid(conf.squeeze(), obj_mask_t, TinyTorch::NONE)[noobj_mask_t + obj_mask_t]).mean();
             LOGD("loss_conf: %f",loss_conf.item());
-            if (loss_conf.toList().size() == 0 || std::isnan(loss_conf.item())) {
-              LOGW("Warning: loss_conf is NaN, skipping this batch.");
-            }
-            else
-              loss += loss_conf * obj_ratio_;
+            loss += loss_conf * obj_ratio_;
            }
            return loss;
         }

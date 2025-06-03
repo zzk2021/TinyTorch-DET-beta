@@ -155,7 +155,7 @@ class DatasetCIFAR10 : public Dataset {
   DatasetCIFAR10(const std::string& annotation_path, CIFAR10DataType type,
               const std::shared_ptr<transforms::Transform>& transform);
   size_t size() const override { return size_; }
-  std::vector<Tensor> getItem(size_t idx) override;
+  std::vector<Tensor> getItem(size_t idx);
   int32_t getNumClass() const { return num_classes_; }
  private:
   std::vector<std::vector<float>> images_;
@@ -177,7 +177,7 @@ class DatasetYOLO : public Dataset {
   DatasetYOLO(const std::string& annotation_path, YOLODataType type,
                const std::shared_ptr<transforms::Transform>& transform);
   size_t size() const override { return size_; }
-  std::vector<Tensor> getItem(size_t idx) override;
+  std::vector<Tensor> getItem(size_t idx);
   int32_t getNumClass() const { return num_classes_; }
  private:
   std::vector<std::vector<float>> images_;
@@ -195,7 +195,7 @@ class DataLoader {
  public:
   DataLoader(const std::shared_ptr<Dataset>& dataset, size_t batchSize,
              bool shuffle = false, bool dropLast = false)
-      : dataset_(dataset), batchSize_(batchSize), shuffle_(shuffle) {
+      : dataset_(dataset), batchSize_(batchSize), shuffle_(shuffle)  {
     if (dropLast) {
       batchCnt_ = dataset->size() / batchSize;
     } else {
@@ -216,7 +216,7 @@ class DataLoader {
   class Iterator {
    public:
     Iterator(const DataLoader& loader, size_t startIdx)
-        : loader_(loader), batchIdx(startIdx) {}
+        : loader_(loader), batchIdx(startIdx){}
 
     bool operator!=(const Iterator& other) const {
       return batchIdx != other.batchIdx;
@@ -265,7 +265,6 @@ class DataLoader {
       }
       return {batchIdx, batch};
     }
-
    private:
     const DataLoader& loader_;
     size_t batchIdx;

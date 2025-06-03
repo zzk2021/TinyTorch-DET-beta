@@ -9,7 +9,6 @@
 #include <vector>
 #include "../Allocator.h"
 #include "../Logger.h"
-
 namespace TinyTorch {
 
 #define TENSOR_MAX_DIMS 8
@@ -88,7 +87,8 @@ typedef enum ShapeCompatible_ {
   _H void copyDeviceToHost(void* dst, const void* src, size_t count) _T;       \
                                                                                \
   /* fill */                                                                   \
-  _H void fillConstant_(float* dst, float val, size_t count) _T;               \
+  _H void fillConstant_(float* dst, float val, size_t count,                   \
+                        Dtype T = Dtype::float32) _T;                          \
   _H void fillConstant_(TensorImpl& t, float val) _T;                          \
   _H void fillLinSpace_(float* dst, float start, float step, size_t count) _T; \
   _H void fillRandUniform_(TensorImpl& t, float min, float max) _T;            \

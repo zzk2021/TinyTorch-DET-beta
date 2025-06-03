@@ -264,9 +264,18 @@ TensorImpl TensorOpsCUDA::opPairScalarFirst(const TensorImpl& a,
 template <typename OP>
 TensorImpl TensorOpsCUDA::opPairScalarSecond(const TensorImpl& a,
                                              const TensorImpl& b) const {
-  auto result = TensorImpl::shape(a.shape(), a.device_);
+  auto result = TensorImpl::shape(a.shape(), a.device_, a.type_);
+  if (a.type_ == Dtype::float16)
   kPairScalarSecondOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      result.data_, a.data_, b.data_, result.elemCount_);
+        reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(a.data_),
+        reinterpret_cast<half*>(b.data_), result.elemCount_);
+  else if(a.type_ == Dtype::bfloat16)
+    kPairScalarSecondOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+        reinterpret_cast<nv_bfloat16*>(result.data_), reinterpret_cast<nv_bfloat16 *>(a.data_),
+        reinterpret_cast<nv_bfloat16*>(b.data_), result.elemCount_);
+  else
+    kPairScalarSecondOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+        result.data_, a.data_, b.data_, result.elemCount_);
   CUDA_KERNEL_CHECK();
   return result;
 }
@@ -293,17 +302,40 @@ void TensorOpsCUDA::opPair_(TensorImpl& t, float b) const {
 
 template <typename OP>
 void TensorOpsCUDA::opPair_(TensorImpl& t, const TensorImpl& b) const {
-  kPairOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(t.data_, b.data_,
-                                                              t.elemCount_);
+    if (t.type() == Dtype::float16)
+        kPairOp_<OP,half><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+                reinterpret_cast<half*>(t.data_),
+                reinterpret_cast<half*>(b.data_),
+                t.elemCount_);
+    else if (t.type() == Dtype::bfloat16)
+        kPairOp_<OP,__nv_bfloat16><<<getGridSize(t.elemCount_), getBlockSize()>>>(
+                reinterpret_cast<__nv_bfloat16*>(t.data_),
+                reinterpret_cast<__nv_bfloat16*>(b.data_),
+                t.elemCount_);
+    else
+        kPairOp_<OP><<<getGridSize(t.elemCount_), getBlockSize()>>>(t.data_,
+                                                                    b.data_,
+                                                                    t.elemCount_);
+
   CUDA_KERNEL_CHECK();
 }
 
 template <typename OP>
 void TensorOpsCUDA::opPairScalarFirst_(TensorImpl& a,
                                        const TensorImpl& b) const {
-  auto result = TensorImpl::shape(b.shape_, b.device_);
+  auto result = TensorImpl::shape(b.shape_, b.device_, b.type_);
+  if (a.type_ == Dtype::float16)
   kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
-      result.data_, a.data_, b.data_, result.elemCount_);
+        reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(a.data_),
+        reinterpret_cast<half*>(b.data_), result.elemCount_);
+  if (a.type_ == Dtype::bfloat16)
+    kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+        reinterpret_cast<nv_bfloat16 *>(result.data_), reinterpret_cast<nv_bfloat16*>(a.data_),
+        reinterpret_cast<nv_bfloat16*>(b.data_), result.elemCount_);
+  if (a.type_ == Dtype::float32)
+    kPairScalarFirstOp<OP><<<getGridSize(result.elemCount_), getBlockSize()>>>(
+       result.data_, a.data_, b.data_, result.elemCount_);
+
   CUDA_KERNEL_CHECK();
   a = std::move(result);
 }
@@ -313,6 +345,18 @@ void TensorOpsCUDA::opPairScalarSecond_(TensorImpl& a,
                                         const TensorImpl& b) const {
   kPairScalarSecondOp_<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
       a.data_, b.data_, a.elemCount_);
+
+  if (a.type_ == Dtype::float16)
+    kPairScalarSecondOp_<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
+        reinterpret_cast<half*>(a.data_),
+        reinterpret_cast<half*>(b.data_), a.elemCount_);
+  if (a.type_ == Dtype::bfloat16)
+    kPairScalarSecondOp_<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
+        reinterpret_cast<nv_bfloat16*>(a.data_),
+        reinterpret_cast<nv_bfloat16*>(b.data_), a.elemCount_);
+  if (a.type_ == Dtype::float32)
+    kPairScalarSecondOp_<OP><<<getGridSize(a.elemCount_), getBlockSize()>>>(
+        a.data_, b.data_, a.elemCount_);
   CUDA_KERNEL_CHECK();
 }
 
@@ -572,11 +616,18 @@ void TensorOpsCUDA::copyDeviceToHost(void* dst, const void* src, size_t count) {
   CUDA_CHECK(cudaMemcpy(dst, src, count, cudaMemcpyDeviceToHost));
 }
 
-void TensorOpsCUDA::fillConstant_(float* dst, float val, size_t count) {
-  kFillConstant<<<getGridSize(count, 4), getBlockSize()>>>(dst, val, count);
+void TensorOpsCUDA::fillConstant_(float* dst, float val, size_t count, Dtype T) {
+  if (T==Dtype::float16)
+    kFillConstant<<<getGridSize(count, 4), getBlockSize()>>>(
+        reinterpret_cast<half*>(dst),__float2half(val), count);
+  else if (T == Dtype::bfloat16)
+    kFillConstant<<<getGridSize(count, 4), getBlockSize()>>>(
+        reinterpret_cast<__nv_bfloat16*>(dst),__float2bfloat16(val), count);
+  else
+    kFillConstant<<<getGridSize(count, 4), getBlockSize()>>>(
+    dst,val, count);
   CUDA_KERNEL_CHECK();
 }
-
 
 void TensorOpsCUDA::fillConstant_(TensorImpl& t, float val) {
 
@@ -620,7 +671,14 @@ void TensorOpsCUDA::fillRandNormal_(TensorImpl& t) {
 void TensorOpsCUDA::fillRandBernoulli_(TensorImpl& t, float p) {
   auto seed = RandomGeneratorCUDA::getSeed();
   auto seq = RandomGeneratorCUDA::nextSequence();
-  kFillRandBernoulli<<<getGridSize(t.elemCount_, 4), getBlockSize()>>>(
+  if (t.type_ == Dtype::float16)
+    kFillRandBernoulli<half><<<getGridSize(t.elemCount_, 4), getBlockSize()>>>(
+      reinterpret_cast<half*>(t.data_), p, seed, seq, t.elemCount_);
+  else if(t.type_ == Dtype::bfloat16)
+     kFillRandBernoulli<__nv_bfloat16><<<getGridSize(t.elemCount_, 4), getBlockSize()>>>(
+       reinterpret_cast<__nv_bfloat16*>(t.data_), p, seed, seq, t.elemCount_);
+  else
+      kFillRandBernoulli<float><<<getGridSize(t.elemCount_, 4), getBlockSize()>>>(
       t.data_, p, seed, seq, t.elemCount_);
   CUDA_KERNEL_CHECK();
 }
@@ -673,7 +731,13 @@ TensorImpl TensorOpsCUDA::pow(const TensorImpl& a, const TensorImpl& b) {
 }
 
 TensorImpl TensorOpsCUDA::add(const TensorImpl& a, const float& b) {
-  return opPair<OpCudaAdd>(a, b);
+
+ if (a.type() == Dtype::float16)
+    return opPair<OpCudaAdd>(a, __float2half(b));
+ else if (a.type() == Dtype::bfloat16)
+    return opPair<OpCudaAdd>(a, __float2bfloat16(b));
+ else
+    return opPair<OpCudaAdd>(a, b);
 }
 
 TensorImpl TensorOpsCUDA::sub(const TensorImpl& a, const float& b) {
@@ -1044,7 +1108,7 @@ std::pair<TensorImpl, TensorImpl> TensorOpsCUDA::max(const TensorImpl& t,
                                                      int32_t dim,
                                                      bool keepDims) {
   if (t.dimCount_ == 0) {
-    return {t, TensorImpl::scalar(0, t.device_, t.type_)};
+    return {t, TensorImpl::scalar(0, t.device_)};
   }
   if (t.type_ == Dtype::float16)
     return reduceDim<OpCudaReduceMax, half>(t, dim, keepDims);
@@ -1269,14 +1333,24 @@ void TensorOpsCUDA::indexPut_(
   auto len = (int32_t)indices.size();
   auto fistDim = (int32_t)indices[0].get().elemCount_;
   auto dimStride = t.strides_[len - 1];
-
   FixedVector<float*> indicesData{};
   for (int32_t i = 0; i < len; i++) {
     indicesData.data[i] = indices[i].get().data_;
   }
-  auto ctxT = getTensorCtx(t);
-  kIndexPut<<<getGridSize(fistDim), getBlockSize()>>>(
-      ctxT, indicesData, dimStride, len, val, fistDim);
+  if (t.type_ == Dtype::float16){
+      auto ctxT = getTensorCtx<half>(t);
+      kIndexPut<<<getGridSize(fistDim), getBlockSize()>>>(
+          ctxT, indicesData, dimStride, len, val, fistDim);
+  }
+  else if(t.type_ == Dtype::bfloat16){
+      auto ctxT = getTensorCtx<__nv_bfloat16>(t);
+      kIndexPut<<<getGridSize(fistDim), getBlockSize()>>>(
+          ctxT, indicesData, dimStride, len, val, fistDim);
+  }else{
+      auto ctxT = getTensorCtx(t);
+      kIndexPut<<<getGridSize(fistDim), getBlockSize()>>>(
+          ctxT, indicesData, dimStride, len, val, fistDim);
+  }
   CUDA_KERNEL_CHECK();
 }
 
@@ -1288,14 +1362,25 @@ void TensorOpsCUDA::indexPut_(
   auto fistDim = (int32_t)indices[0].get().elemCount_;
   auto dimStride = t.strides_[len - 1];
   ASSERT(val.elemCount_ == dimStride * fistDim);
-
+  ASSERT(t.type() == val.type());
   FixedVector<float*> indicesData{};
   for (int32_t i = 0; i < len; i++) {
     indicesData.data[i] = indices[i].get().data_;
   }
-  auto ctxT = getTensorCtx(t);
-  kIndexPut<<<getGridSize(fistDim), getBlockSize()>>>(
-      ctxT, indicesData, dimStride, len, val.data_, fistDim);
+  if (val.type_ == Dtype::float16){
+      auto ctxT = getTensorCtx<half>(t);
+      kIndexPut<<<getGridSize(fistDim), getBlockSize()>>>(
+          ctxT, indicesData, dimStride, len, reinterpret_cast<half*>(val.data_), fistDim);
+  }
+  else if(val.type_ == Dtype::bfloat16){
+      auto ctxT = getTensorCtx<__nv_bfloat16>(t);
+      kIndexPut<<<getGridSize(fistDim), getBlockSize()>>>(
+          ctxT, indicesData, dimStride, len, reinterpret_cast<__nv_bfloat16*>(val.data_), fistDim);
+  }else{
+      auto ctxT = getTensorCtx(t);
+      kIndexPut<<<getGridSize(fistDim), getBlockSize()>>>(
+          ctxT, indicesData, dimStride, len, val.data_, fistDim);
+  }
   CUDA_KERNEL_CHECK();
 }
 
@@ -2024,7 +2109,7 @@ TensorImpl TensorOpsCUDA::upsample_forward(const TensorImpl& a , int32_t scale_f
 TensorImpl TensorOpsCUDA::upsample_backward(const TensorImpl& a , int32_t scale_factor){
   TensorImpl ret = TensorImpl::shape({a.shape_[0], a.shape_[1], static_cast<int>(a.shape_[2]/scale_factor),
                                             static_cast<int>(a.shape_[3]/scale_factor)}, a.device());
-  int32_t N = a.numel();
+  int32_t N = ret.numel();
   int32_t h = ret.shape_[2];
   int32_t w = ret.shape_[3];
   if (scale_factor == 2 && N >= 256){

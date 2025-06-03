@@ -54,6 +54,7 @@ enum FunctionType {
   Function_BCELoss,
   Function_BCELossWithSigmoid,
   Function_NLLLoss,
+  Function_ChangeType,
   // object detection support
   OBJDECT_EXPLORE_FUNCTIONTYPE()
 };
@@ -84,6 +85,7 @@ class Function : public std::enable_shared_from_this<Function> {
   static Tensor leakyrelu(const Tensor& input, float rate = 0.1);
   static Tensor flatten(const Tensor& input, int32_t startDim, int32_t endDim);
   static Tensor upsample(const Tensor& input, int32_t scale_factor);
+  static Tensor changetype(const Tensor& input, Dtype T);
   static Tensor unflatten(const Tensor& input, int32_t dim,
                           const std::vector<int32_t>& sizes);
 
@@ -269,7 +271,7 @@ class FuncSum : public Function {
 
 class FuncMean : public Function {
  public:
-  DEFINE_FUNCTION_MEMBERS(Function_Sum)
+  DEFINE_FUNCTION_MEMBERS(Function_Mean)
 };
 
 class FuncMax : public Function {
@@ -343,7 +345,6 @@ class FuncUnsqueeze : public Function {
  public:
   explicit FuncUnsqueeze(int32_t dim) : dim_(dim) {}
   DEFINE_FUNCTION_MEMBERS(Function_Unsqueeze)
-
  private:
   int32_t dim_;
 };
@@ -352,7 +353,6 @@ class FuncReshape : public Function {
  public:
   explicit FuncReshape(const Shape& shape) : shape_(shape) {}
   DEFINE_FUNCTION_MEMBERS(Function_Reshape)
-
  private:
   Shape shape_;
 };
@@ -360,7 +360,6 @@ class FuncReshape : public Function {
 class FuncLinear : public Function {
  public:
   DEFINE_FUNCTION_MEMBERS(Function_Linear)
-
 };
 
 class FuncFlashAttention : public Function {
@@ -406,6 +405,16 @@ class FuncSigmoid : public Function {
   DEFINE_FUNCTION_MEMBERS(Function_Softmax)
  private:
   TensorImpl forwardOutput_;
+};
+
+
+class FuncChangeType : public Function {
+ public:
+  explicit FuncChangeType(Dtype T, Dtype ori_T) : T_(T), Ori_T_(ori_T) {}
+  DEFINE_FUNCTION_MEMBERS(Function_ChangeType)
+ private:
+  Dtype  T_;
+  Dtype  Ori_T_;
 };
 
 class FuncLogSoftmax : public Function {

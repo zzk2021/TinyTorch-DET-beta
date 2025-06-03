@@ -434,7 +434,7 @@ void TensorOpsCPU::copyDeviceToHost(void* dst, const void* src, size_t count) {
   std::memcpy(dst, src, count);
 }
 
-void TensorOpsCPU::fillConstant_(float* dst, float val, size_t count) {
+void TensorOpsCPU::fillConstant_(float* dst, float val, size_t count, Dtype T) {
   std::fill(dst, dst + count, val);
 }
 

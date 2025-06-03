@@ -13,16 +13,13 @@
 #include "kernel/leakyrelu.inc"
 #include "kernel/slice.inc"
 #include "kernel/mask.inc"
+#include "kernel/bernoulli.inc"
 
 namespace TinyTorch {
 
 #define WARP_SIZE 32
 #define TRANSPOSE_TILE_DIM 32
 
-#define FETCH_FLOAT2(pointer) (reinterpret_cast<float2*>(&(pointer))[0])
-#define FETCH_FLOAT3(pointer) (reinterpret_cast<float3*>(&(pointer))[0])
-#define FETCH_FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
-#define FETCH_HALF2(pointer) (reinterpret_cast<half2*>(&(pointer))[0])
 __global__ void convertFloatToHalfKernel(float* src, __half* dst, size_t count) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < count) {
@@ -71,10 +68,10 @@ struct OpCudaAssign {
     __device__ float operator()(const float a, const float b) const {
         return b;
     }
-     __device__ float operator()(const half a, const half b) const {
+     __device__ half operator()(const half a, const half b) const {
         return b;
     }
-     __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+     __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
         return b;
     }
 };
@@ -131,10 +128,10 @@ struct OpCudaPow {
   __device__ float operator()(const float a, const float b) const {
     return pow(a, b);
   }
-    __device__ float operator()(const half a, const half b) const {
+    __device__ half operator()(const half a, const half b) const {
     return hexp(b* hlog2(a));
   }
-    __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+    __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
     return hexp(b* hlog2(a));
   }
 };
@@ -143,10 +140,10 @@ struct OpCudaEq {
   __device__ float operator()(const float a, const float b) const {
     return a == b ? 1.f : 0.f;
   }
-  __device__ float operator()(const half a, const half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a == b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+  __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
     return a == b ? 1.f : 0.f;
   }
 };
@@ -155,10 +152,10 @@ struct OpCudaNe {
   __device__ float operator()(const float a, const float b) const {
     return a != b ? 1.f : 0.f;
   }
-  __device__ float operator()(const half a, const half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a != b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+  __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
     return a != b ? 1.f : 0.f;
   }
 };
@@ -167,10 +164,10 @@ struct OpCudaLt {
   __device__ float operator()(const float a, const float b) const {
     return a < b ? 1.f : 0.f;
   }
-    __device__ float operator()(const half a, const half b) const {
+    __device__ half operator()(const half a, const half b) const {
     return a < b ? 1.f : 0.f;
   }
-    __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+    __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
     return a < b ? 1.f : 0.f;
   }
 };
@@ -179,10 +176,10 @@ struct OpCudaLe {
   __device__ float operator()(const float a, const float b) const {
     return a <= b ? 1.f : 0.f;
   }
-  __device__ float operator()(const half a, const half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a <= b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+  __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
     return a <= b ? 1.f : 0.f;
   }
 };
@@ -191,10 +188,10 @@ struct OpCudaGt {
   __device__ float operator()(const float a, const float b) const {
     return a > b ? 1.f : 0.f;
   }
-  __device__ float operator()(const half a, const half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a > b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+  __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
     return a > b ? 1.f : 0.f;
   }
 };
@@ -203,10 +200,10 @@ struct OpCudaGe {
   __device__ float operator()(const float a, const float b) const {
     return a >= b ? 1.f : 0.f;
   }
-  __device__ float operator()(const half a, const half b) const {
+  __device__ half operator()(const half a, const half b) const {
     return a >= b ? 1.f : 0.f;
   }
-  __device__ float operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
+  __device__ __nv_bfloat16 operator()(const __nv_bfloat16 a, const __nv_bfloat16 b) const {
     return a >= b ? 1.f : 0.f;
   }
 };
@@ -404,16 +401,26 @@ __global__ void kFillConstant(float* __restrict__ t, const float val,
 }
 
 template<>
-__global__ void kFillConstant(__half* __restrict__ t, const __half val, const size_t n) {
-    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t vec_index = index * 2;
-
-    if (vec_index + 1 < n) {
-        *((__half2*)(t + vec_index)) = make_half2(val, val);
+__global__ void kFillConstant(__half* __restrict__ t,
+                                  const __half val,
+                                  const size_t n)
+{
+  const size_t baseIdx = (size_t)(blockIdx.x * blockDim.x + threadIdx.x) * 2;
+  if (baseIdx >= n) return;
+  if (baseIdx == n - 1) {
+    t[baseIdx] = val;
+    return;
+  }
+  if (baseIdx + 1 < n) {
+    const uintptr_t addr = reinterpret_cast<uintptr_t>(t + baseIdx);
+    const bool isAligned = (addr % 4 == 0);
+    if (isAligned) {
+      *reinterpret_cast<__half2*>(t + baseIdx) = make_half2(val, val);
     } else {
-        if (vec_index < n) t[vec_index] = val;
-        if (vec_index + 1 < n) t[vec_index + 1] = val;
+      t[baseIdx] = val;
+      t[baseIdx + 1] = val;
     }
+  }
 }
 
 template<>
@@ -488,27 +495,6 @@ __global__ void kFillRandNormal(float* __restrict__ t, const float mean,
   }
 }
 
-
-__global__ void kFillRandBernoulli(float* __restrict__ t, const float p,
-                                   const unsigned long seed,
-                                   const unsigned long seq, const int n) {
-  const auto index = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
-  if (index < n) {
-    curandStatePhilox4_32_10_t state;
-    curand_init(seed, seq, index, &state);
-    const auto rand = curand_uniform4(&state);
-
-    if (index + 3 < n) {
-      FETCH_FLOAT4(t[index]) =
-          make_float4(rand.x < p ? 1.f : 0.f, rand.y < p ? 1.f : 0.f,
-                      rand.z < p ? 1.f : 0.f, rand.w < p ? 1.f : 0.f);
-    } else {
-      if (index < n) t[index] = rand.x < p ? 1.f : 0.f;
-      if (index + 1 < n) t[index + 1] = rand.y < p ? 1.f : 0.f;
-      if (index + 2 < n) t[index + 2] = rand.z < p ? 1.f : 0.f;
-    }
-  }
-}
 
 template <typename OP, typename T = float>
 __global__ void kSingleOp_(T* __restrict__ t, const int n) {
@@ -1108,14 +1094,13 @@ __global__ void kIndexPut(TensorCudaCtx<T> t, FixedVector<float*> indices,
 
 template<typename T >
 __global__ void kIndexPut(TensorCudaCtx<T> t, FixedVector<float*> indices,
-                          int dimStride, int len, float* val, int n) {
+                          int dimStride, int len, T* val, int n) {
   unsigned int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index < n) {
     int32_t subIndices[TENSOR_MAX_DIMS];
     cuGetSubIndices(subIndices, t.shape_, indices.data, index, len);
     int32_t dataIdx = cuIndicesToOffset(t.strides_, subIndices, t.dimCount_);
-    memcpy(&t.data_[dataIdx], &val[dimStride * index],
-           dimStride * sizeof(float));
+    memcpy(&t.data_[dataIdx], &val[dimStride * index], dimStride * sizeof(T));
   }
 }
 
@@ -1142,7 +1127,7 @@ __global__ void kIm2Col(T * ret, const T * t, int32_t batch,
     int32_t imCol = w * strideW + kw - paddingW;
     int32_t colWIdx = c * kernelH * kernelW + kh * kernelW + kw;
 
-    T value = static_cast<T>(0.0f);
+    T value = 0.0f;
     if (imRow >= 0 && imRow < height && imCol >= 0 && imCol < width) {
       int32_t imgIdx = imCol + width * (imRow + height * c);
       value = t[n * imStride + imgIdx];

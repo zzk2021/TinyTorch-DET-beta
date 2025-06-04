@@ -203,12 +203,12 @@ TensorImpl TensorOpsCUDA::opPair(const TensorImpl& a, float b) const {
   else if (a.type() == Dtype::bfloat16)
     kPairScalarSecondOp<OP, __nv_bfloat16><<<getGridSize(a.elemCount_), getBlockSize()>>>(
       reinterpret_cast<__nv_bfloat16*>(result.data_), reinterpret_cast<__nv_bfloat16*>(a.data_),
-      static_cast<__nv_bfloat16>(b), a.elemCount_);
+      __float2bfloat16(b), a.elemCount_);
 
   else if (a.type() == Dtype::float16)
     kPairScalarSecondOp<OP, half><<<getGridSize(a.elemCount_), getBlockSize()>>>(
       reinterpret_cast<half*>(result.data_), reinterpret_cast<half*>(a.data_),
-      static_cast<half>(b), a.elemCount_);
+      __float2half(b), a.elemCount_);
 
   CUDA_KERNEL_CHECK();
   return result;

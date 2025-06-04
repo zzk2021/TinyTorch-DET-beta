@@ -205,30 +205,42 @@ TEST(TEST_cuda_kernel, conv_fp16) {
  auto weight = Tensor(TensorImpl::randn({3, 3, 3, 3},Device::CUDA), true);
  auto bias = Tensor(TensorImpl::randn({3},Device::CUDA), true);
  auto output1 = Function::conv2d(a, weight, bias);
-
+ output1.sum().backward();
  auto p = output1.data().toList();
- auto output = Function::conv2d(a.to(Dtype::float16), weight.to(Dtype::float16), bias.to(Dtype::float16));
+   Tensor b = Tensor(TensorImpl::zerosLike(a.data(),Device::CUDA) + a.data(),true);
+ b.to(Dtype::float16);
+ auto output = Function::conv2d(b, weight.to(Dtype::float16), bias.to(Dtype::float16));
+ output.sum().backward();
  output.to(Dtype::float32);
  auto p1 = output.data().toList();
-
+ auto p11 = b.getGrad().data().to(Dtype::float32).toList();
+ auto p00 = a.getGrad().data().toList();
  for (size_t i = 0; i < p.size(); ++i) {
    ASSERT_NEAR(p[i], p1[i], 1e-1);
+ }
+  for (size_t i = 0; i < p11.size(); ++i) {
+   ASSERT_NEAR(p11[i], p00[i], 1e-1);
  }
 }
 
 TEST(TEST_cuda_kernel, linear_fp16) {
- Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
+ Tensor a = Tensor(TensorImpl::randn({32,16},Device::CUDA),true);
  auto weight = Tensor(TensorImpl::randn({16,16},Device::CUDA), true);
  auto bias = Tensor(TensorImpl::randn({16},Device::CUDA), true);
  auto output1 = Function::linear(a, weight, bias);
+ output1.sum().backward();
+  Tensor b = Tensor(TensorImpl::zerosLike(a.data(),Device::CUDA) + a.data(),true);
+ b.to(Dtype::float16);
  //  output1.backward(Tensor::shape(output1.shape()).to(Device::CUDA));
  auto p = output1.data().toList();
- auto output = Function::linear(a.to(Dtype::float16), weight.to(Dtype::float16), bias.to(Dtype::float16));
+
+ auto output = Function::linear(b, weight.to(Dtype::float16), bias.to(Dtype::float16));
+ output.sum().backward();
  //output.backward(Tensor::onesLike(output).to(Device::CUDA).to(Dtype::float16));
  output.to(Dtype::float32);
  auto p1 = output.data().toList();
- auto bp1 = output1.getGrad().data().toList();
- auto bp2 = output.getGrad().data().toList();
+ auto bp1 = a.getGrad().data().toList();
+ auto bp2 = b.getGrad().data().to(Dtype::float32).toList();
  for (size_t i = 0; i < p.size(); ++i) {
    ASSERT_NEAR(p[i], p1[i], 1e-1);
  }
@@ -238,7 +250,7 @@ TEST(TEST_cuda_kernel, linear_fp16) {
 }
 
 TEST(TEST_cuda_kernel, max_pool2d_fp16) {
- Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
+ Tensor a = Tensor(TensorImpl::randn({16,3,64,64},Device::CUDA),true);
  auto output1 = Function::maxPool2d(a, 2, 2);
  auto io = output1.sum();
  auto y90 = io.item();
@@ -248,7 +260,6 @@ TEST(TEST_cuda_kernel, max_pool2d_fp16) {
  b.to(Dtype::float16);
  auto output = Function::maxPool2d(b, 2, 2);
  auto sum_o = output.sum();
- auto yu = sum_o.to(Dtype::float32).item();
  sum_o.backward();
  auto p1 = output.to(Dtype::float32).data().toList();
  auto p_g = a.getGrad().toList();
@@ -256,16 +267,16 @@ TEST(TEST_cuda_kernel, max_pool2d_fp16) {
  auto p1_g = p_11.to(Dtype::float32).toList();
 
  for (size_t i = 0; i < p.size(); ++i) {
-   EXPECT_NEAR(p[i], p1[i], 1e-2);
+   ASSERT_NEAR(p[i], p1[i], 1e-2);
  }
  for (size_t i = 0; i < p_g.size(); ++i) {
 
-   EXPECT_NEAR(p_g[i], p1_g[i], 1e-2);
+   ASSERT_NEAR(p_g[i], p1_g[i], 1e-2);
  }
 }
 
 TEST(TEST_cuda_kernel, relu_fp16) {
- Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
+ Tensor a = Tensor(TensorImpl::randn({16,4,32,32},Device::CUDA),true);
  auto output1 = Function::relu(a);
  output1.sum().backward();
  auto p = output1.data().toList();
@@ -281,9 +292,8 @@ TEST(TEST_cuda_kernel, relu_fp16) {
  auto l = pa.getGrad();
  auto pl = l.to(Dtype::float32).toList();
  auto pl1 = a.getGrad().toList();
- for (size_t i = 0; i < p.size(); ++i) {
-   ASSERT_NEAR(pl[i], pl1[i], 1e-2);
- }
+ EXPECT_THAT(pl,ElementsAreArray(pl1));
+
 }
 
 TEST(TEST_cuda_kernel, max_fp16) {
@@ -521,4 +531,58 @@ TEST(TEST_cuda_kernel, basic_indexing_fp16) {
   idx2 = TensorImpl({2, -1},Device::CUDA);
   x.indexPut_({idx1, idx2}, TensorImpl({1.2, 2.3},Device::CUDA).to(Dtype::float16));
   EXPECT_THAT(x.to(Dtype::float32).toList(), ElementsAre(1, 2, 3, 4, 5, 2.3, 7, 8, 1.2));
+}
+
+TEST(TEST_cuda_kernel, large_matrix_indexing_fp16) {
+  // Create large tensor (3, 256, 256)
+  Shape shape = {3, 256, 256};
+  TensorImpl x =TensorImpl::ones(shape, Device::CUDA);
+  x.reshape_(shape);
+  x.to_(Dtype::float16);
+
+  // Single index assignment to slice
+  x.indexPut_(std::vector<int32_t>{1}, -1);
+
+  // Create index tensors for block operation
+  std::vector<float> rows, cols;
+  std::vector<float> pos_data;
+
+  for (int i = 10; i < 20; i++) {
+    for (int j = 10; j < 20; j++) {
+      rows.push_back(i);
+      cols.push_back(j);
+      pos_data.push_back(2);
+    }
+  }
+  TensorImpl row_idx(rows, Device::CUDA);
+  TensorImpl col_idx(cols, Device::CUDA);
+  TensorImpl po(pos_data, Device::CUDA);
+
+  TensorImpl vals(std::vector<float>(100, 99.0f), Device::CUDA);
+  vals.to_(Dtype::float16);
+  x.indexPut_({po, row_idx, col_idx}, vals);
+
+  // Verify assignments through sampling
+  auto x_cpu = x.to(Dtype::float32).to(Device::CPU).toList();
+  // Check slice assignment
+  for (int i = 0; i < 256; i++) {
+    for (int j = 0; j < 256; j++) {
+      int idx = 1 * 256 * 256 + i*256 + j;
+      EXPECT_FLOAT_EQ(x_cpu[idx], -1);
+    }
+  }
+  // Check block assignment
+  for (int i = 10; i < 20; i++) {
+    for (int j = 10; j < 20; j++) {
+      int idx = 2 * 256 * 256 + i*256 + j;
+      EXPECT_FLOAT_EQ(x_cpu[idx], 99.0f);
+    }
+  }
+  // Check unmodified regions
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 10; j++) {
+      int idx = 2 * 256 * 256 + i*256 + j;
+      EXPECT_FLOAT_EQ(x_cpu[idx], 1);
+    }
+  }
 }

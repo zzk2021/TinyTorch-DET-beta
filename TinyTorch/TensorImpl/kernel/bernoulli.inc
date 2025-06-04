@@ -1,6 +1,7 @@
 #pragma once
 #define FETCH_FLOAT4(pointer) (reinterpret_cast<float4*>(&(pointer))[0])
-
+#define FETCH_HALF2(pointer) (reinterpret_cast<half2*>(&(pointer))[0])
+#define FETCH_BFLOAT2(pointer) (reinterpret_cast<nv_bfloat162*>(&(pointer))[0])
 template<typename T>
 __global__ void kFillRandBernoulli(T* __restrict__ t, const float p,
                                    const unsigned long seed,

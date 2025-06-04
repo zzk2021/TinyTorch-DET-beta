@@ -447,7 +447,7 @@ void TensorImpl::to_(Dtype T) {
     return;
   }
   if (device_ == Device::CPU) {
-    throw std::runtime_error("We only support data type in CUDA, please change the data device to CUDA");
+     assert(false && "We only support data type in CUDA, please change the data device to CUDA");
   }
   auto oldType = type_;
   auto oldData = data_;
@@ -1237,13 +1237,13 @@ void TensorImpl::indexPut_(const std::vector<int32_t> &indices, float val) {
   }
   int32_t dimStride = strides_[len - 1];
   if (this->type_ == Dtype::float16) {
-    float *out =
-        reinterpret_cast<float *>(&reinterpret_cast<half *>(data_)[dataIdx]);
+    auto *out =
+      reinterpret_cast<float *>(&reinterpret_cast<half*>(data_)[dataIdx]);
     ops_->fillConstant_(out, val, dimStride, Dtype::float16);
   }
   if (this->type_ == Dtype::bfloat16) {
-    float *out =
-        reinterpret_cast<float *>(&reinterpret_cast<nv_bfloat16 *>(data_)[dataIdx]);
+    auto *out =
+      reinterpret_cast<float *>(&((reinterpret_cast<nv_bfloat16*>(data_))[dataIdx]));
     ops_->fillConstant_(out, val,
                         dimStride, Dtype::bfloat16);
   }
@@ -1409,6 +1409,10 @@ TensorImpl TensorImpl::vstack(
        TensorOperations::error(__FUNCTION__, TensorError_DeviceNotAligned);
        return {};
      }
+     if (t.type_ != t0.type_) {
+      TensorOperations::error(__FUNCTION__, TensorError_TypeNotAligned);
+      return {};
+    }
    }
 
    // check shapes
@@ -1596,7 +1600,7 @@ TensorImpl TensorImpl::matmul(const TensorImpl &a, const TensorImpl &b) {
   TENSOR_CHECK_EMPTY_RET(a, {});
   TENSOR_CHECK_EMPTY_RET(b, {});
   TENSOR_CHECK_DEVICE_RET(a, b, {});
-
+  TENSOR_CHECK_DTYPE_RET(a, b, {});
   if (a.dim() == 0 || b.dim() == 0) {
     TensorOperations::error(__FUNCTION__, TensorError_InvalidShape);
     return {};

@@ -400,42 +400,39 @@ __global__ void kFillConstant(float* __restrict__ t, const float val,
   }
 }
 
+
 template<>
-__global__ void kFillConstant(__half* __restrict__ t,
-                                  const __half val,
-                                  const size_t n)
-{
-  const size_t baseIdx = (size_t)(blockIdx.x * blockDim.x + threadIdx.x) * 2;
-  if (baseIdx >= n) return;
-  if (baseIdx == n - 1) {
-    t[baseIdx] = val;
-    return;
-  }
-  if (baseIdx + 1 < n) {
-    const uintptr_t addr = reinterpret_cast<uintptr_t>(t + baseIdx);
-    const bool isAligned = (addr % 4 == 0);
-    if (isAligned) {
-      *reinterpret_cast<__half2*>(t + baseIdx) = make_half2(val, val);
-    } else {
-      t[baseIdx] = val;
-      t[baseIdx + 1] = val;
-    }
+__global__ void kFillConstant(__half* __restrict__ t, const __half val,
+                              const size_t n) {
+  const half2 val_half2 = __half2half2(val);
+  const auto index = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
+  if (index + 3 < n) {
+    FETCH_HALF2(t[index]) = val_half2;
+    FETCH_HALF2(t[index + 2]) = val_half2;
+  } else {
+    if (index < n) t[index] = val;
+    if (index + 1 < n) t[index + 1] = val;
+    if (index + 2 < n) t[index + 2] = val;
+    if (index + 3 < n) t[index + 3] = val;
   }
 }
+
 
 template<>
 __global__ void kFillConstant(__nv_bfloat16* __restrict__ t,
                                const __nv_bfloat16 val,
                                const size_t n) {
-    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
-    const size_t vec_index = index * 2;
-
-    if (vec_index + 1 < n) {
-        *((__nv_bfloat162*)(t + vec_index)) = make_bfloat162(val, val);
-    } else {
-        if (vec_index < n) t[vec_index] = val;
-        if (vec_index + 1 < n) t[vec_index + 1] = val;
-    }
+  const nv_bfloat162 val_half2 = make_bfloat162(val,val);
+  const auto index = (blockIdx.x * blockDim.x + threadIdx.x) * 4;
+  if (index + 3 < n) {
+    FETCH_BFLOAT2(t[index]) = val_half2;
+    FETCH_BFLOAT2(t[index + 2]) = val_half2;
+  } else {
+    if (index < n) t[index] = val;
+    if (index + 1 < n) t[index + 1] = val;
+    if (index + 2 < n) t[index + 2] = val;
+    if (index + 3 < n) t[index + 3] = val;
+  }
 }
 
 __global__ void kFillLinSpace(float* __restrict__ dst, const float start,
@@ -1091,6 +1088,7 @@ __global__ void kIndexPut(TensorCudaCtx<T> t, FixedVector<float*> indices,
     }
   }
 }
+
 
 template<typename T >
 __global__ void kIndexPut(TensorCudaCtx<T> t, FixedVector<float*> indices,

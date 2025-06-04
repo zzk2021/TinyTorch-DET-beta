@@ -280,6 +280,7 @@ std::vector<TensorImpl> FuncLeaf::backward(const TensorImpl& grad) {
   }
 
   ASSERT(grad.shape() == owner->grad_.data_->shape());
+
   *owner->grad_.data_ = grad;
   return {grad};
 }
@@ -662,7 +663,7 @@ std::vector<TensorImpl> FuncSum::backward(const TensorImpl& grad) {
   std::vector<TensorImpl> ret;
   auto& input = savedTensors[0];
   if (input.isRequiresGrad()) {
-    ret.push_back(grad * TensorImpl::onesLike(input.data(), input.device(), input.type()));
+      ret.push_back(grad * TensorImpl::onesLike(input.data(), input.device(), input.type()));
   }
   return ret;
 }
@@ -915,7 +916,6 @@ TensorImpl FuncMaxPool2D::forward(const std::vector<const Tensor*>& inputs) {
 }
 
 std::vector<TensorImpl> FuncMaxPool2D::backward(const TensorImpl& grad) {
-  auto poi = grad.to(Dtype::float32).toList();
   const auto& savedTensors = getSavedTensors();
   auto& shape = savedTensors[0].shape();
   ASSERT(shape.size() == 3 || shape.size() == 4);

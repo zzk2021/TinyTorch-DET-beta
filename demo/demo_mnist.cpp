@@ -23,14 +23,9 @@ class Net : public nn::Module {
  public:
   Net()
   {
-    registerModules({conv1,conv21});
+    registerModules({conv1,conv21,fc1,fc2,dropout1,dropout2});
     this->to(Device::CUDA);
     this->to(Dtype::float16);
-    registerModule(dropout1);
-    registerModule(fc1);
-    registerModule(dropout2);
-    registerModule(fc2);
-    this->to(Device::CUDA);
   }
   Tensor forward(Tensor &x) override {
     x = conv1(x);
@@ -39,7 +34,6 @@ class Net : public nn::Module {
     x = conv21(x);
 
     x = Function::maxPool2d(x, 2);
-    x = Function::changetype(x, Dtype::float32);
     x = dropout1(x);
     x = Tensor::flatten(x, 1);
 
@@ -47,6 +41,7 @@ class Net : public nn::Module {
     x = Function::relu(x);
     x = dropout2(x);
     x = fc2(x);
+    x = Function::changetype(x, Dtype::float32);
     x = Function::logSoftmax(x, 1);
     return x;
   }

@@ -7,17 +7,24 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(USE_CUDA "Use CUDA" ON)
 option(USE_BLAS "Use BLAS" ON)
 option(USE_OPENCV "Use OPENCV" ON)
+option(USE_CUDNN "Use cuDNN" OFF)
 
 if (APPLE)
     set(USE_CUDA OFF)
+    set(USE_CUDNN OFF)
 endif ()
 
 message(STATUS "USE_CUDA ${USE_CUDA}")
 message(STATUS "USE_BLAS ${USE_BLAS}")
 message(STATUS "USE_OPENCV ${USE_OPENCV}")
+message(STATUS "USE_CUDNN ${USE_CUDNN}")
 
 if (${USE_CUDA})
     add_definitions(-DUSE_CUDA)
+endif ()
+
+if (USE_CUDA AND USE_CUDNN)
+    add_definitions(-DUSE_CUDNN)
 endif ()
 
 if (${USE_OPENCV})

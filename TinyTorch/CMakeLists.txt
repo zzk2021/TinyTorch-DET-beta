@@ -9,7 +9,7 @@ if (${USE_CUDA})
 
     file(GLOB_RECURSE TinyTorch_src_cu "./TensorImpl/*_cuda.cu")
 
-    if (USE_CUDNN)
+    if (${USE_CUDNN})
         if(NOT DEFINED ENV{cuDNN_DIR})
             message(FATAL_ERROR "cuDNN_DIR environment variable is not set. Please set it to the path of your CUDNN build directory.")
         endif()

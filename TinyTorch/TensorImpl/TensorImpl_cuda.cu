@@ -26,7 +26,6 @@ const char* cublasGetErrorString(cublasStatus_t status);
 #define DTYPE_CASE(dtype_enum, cuda_type, dtype)                              \
     case dtype_enum: dtype = cuda_type; break;                                \
 
-//
 #define DTYPE_SWITCH(dtype_var, dtype)                                        \
     switch (dtype_var) {                                                      \
         DTYPE_CASE(Dtype::float32,   CUDA_R_32F, dtype)                       \
@@ -107,11 +106,9 @@ TensorOpsCUDA::TensorOpsCUDA(int32_t device, size_t blockSize)
     : cudaDeviceIdx_(device), blockSize_(blockSize) {
   CUDA_CHECK(cudaSetDevice(cudaDeviceIdx_));
   CUDA_CHECK(cudaGetDeviceProperties(&deviceProp_, cudaDeviceIdx_));
-
   if (blockSize_ > deviceProp_.maxThreadsPerBlock) {
     blockSize_ = deviceProp_.maxThreadsPerBlock;
   }
-
   allocator_.setBaseAllocator(std::make_shared<AllocatorCUDA>());
 }
 

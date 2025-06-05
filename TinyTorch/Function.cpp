@@ -13,7 +13,6 @@
 #include <unordered_map>
 #include "Tensor.h"
 
-
 namespace TinyTorch {
 
 #define FUNC_ENUM_TO_STRING(value) {value, #value}
@@ -958,11 +957,8 @@ TensorImpl FuncConv1D::forward(const std::vector<const Tensor*>& inputs) {
     const int32_t inputLength = input.shape()[2];
 
     const int32_t outLength = (inputLength - kernelSize + 2 * padding_.d) / stride_.d + 1;
-
     col_ = input.im2col1D(kernelSize, stride_, padding_); // [batch, outLength, inChannels*kernelSize]
-
     auto colW = TensorImpl::reshape(weight, {outChannels, -1});
-
     auto ret = TensorImpl::matmulTrans(col_, colW, false, true);
     if (!bias.empty()) {
         ASSERT(bias.dim() == 1);

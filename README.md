@@ -33,11 +33,13 @@ Tiny deep learning training framework implemented from scratch in C++ that follo
   - Relu
   - Sequential
   - UpSample
-  - Concat(Under construction)
-  - Split(Under construction)
+  - Concat
+  - Split
 - Loss
   - MSELoss
   - NLLLoss
+  - BCELoss
+  - BCELossWithSigmoid
 - Optimizer
   - SGD
   - Adagrad
@@ -54,16 +56,46 @@ Tiny deep learning training framework implemented from scratch in C++ that follo
 
 ![](doc/AD.png)
 
-## FP16 BF16 support(Under construction)
+## FP16 BF16 support
 ```c++
 #include "Torch.h"
 
 using namespace TinyTorch;
 
-Tensor a = Tensor(TensorImpl::randn({1,3,16,16},Device::CUDA),true);
-a.to(Dtype::float16);
-a.to(Dtype::float32);
-a.to(Device::CPU);
+class Net : public nn::Module {
+ public:
+  Net()
+  {
+    registerModules({conv1,conv21,dropout1,dropout2,fc1,dropout2,fc2});
+    this->to(Device::CUDA);   // use .to(Device::CUDA) before use to(Dtype::float16)
+    this->to(Dtype::float16); 
+  }
+  Tensor forward(Tensor &x) override {
+    x = Function::changetype(x, Dtype::float16);  // use changetype function in Net
+    x = conv1(x);
+    x = Function::relu(x);
+    x = conv21(x);
+    x = Function::maxPool2d(x, 2);
+    x = dropout1(x);
+    x = Tensor::flatten(x, 1);
+    x = fc1(x);
+    x = Function::relu(x);
+    x = dropout2(x);
+    x = fc2(x);
+    x = Function::changetype(x, Dtype::float32);  // use changetype function in Net
+    x = Function::logSoftmax(x, 1);
+    return x;
+  }
+
+ private:
+  nn::Conv2D conv1{1, 32, 3, 1};
+  nn::Conv2D conv21{32, 64, 3, 1};
+  nn::Dropout dropout1{0.25};
+  nn::Dropout dropout2{0.5};
+  nn::Linear fc1{9216, 128};
+  nn::Linear fc2{128, 10};
+};
+
 ```
 
 ## MNIST training demo:
@@ -102,55 +134,31 @@ class Net : public nn::Module {
   nn::Linear fc2{128, 10};
 };
 
-// Training settings
-struct TrainArgs {
-  // input batch size for training (default: 64)
-  int32_t batchSize = 64;
-
-  // input batch size for testing (default: 1000)
-  int32_t testBatchSize = 1000;
-
-  // number of epochs to train (default: 1)
-  int32_t epochs = 1;
-
-  // learning rate (default: 1.0)
-  float lr = 1.f;
-
-  // Learning rate step gamma (default: 0.7)
-  float gamma = 0.7f;
-
-  // disables CUDA training
-  bool noCuda = false;
-
-  // quickly check a single pass
-  bool dryRun = false;
-
-  // random seed (default: 1)
-  unsigned long seed = 1;
-
-  // how many batches to wait before logging training status
-  int32_t logInterval = 10;
-
-  // For Saving the current Model
-  bool saveModel = false;
-};
-
-void train(TrainArgs &args, nn::Module &model, Device device,
+void train(json &args, nn::Module &model, Device device,
            data::DataLoader &dataLoader, optim::Optimizer &optimizer,
            int32_t epoch) {
   model.train();
+
   Timer timer;
   timer.start();
+  const float loss_scale = 2.0f;
   for (auto [batchIdx, batch] : dataLoader) {
-    auto &data = batch[0].to(device);
+    auto &data = batch[0].to(device);//.to(Dtype::float16);
     auto &target = batch[1].to(device);
     optimizer.zeroGrad();
-    auto output = model(data);
+    Tensor output = model(data);
     auto loss = Function::nllloss(output, target);
+    loss = loss * loss_scale;
     loss.backward();
+
+    for (auto& p : model.parameters()) {
+      if (p->isRequiresGrad()) {
+        p->getGrad().data() = p->getGrad().data() / loss_scale;
+      }
+    }
     optimizer.step();
 
-    if (batchIdx % args.logInterval == 0) {
+    if (batchIdx % args.at("logInterval").get<int>() == 0) {
       timer.mark();
       auto currDataCnt = batchIdx * dataLoader.batchSize();
       auto totalDataCnt = dataLoader.dataset().size();
@@ -158,8 +166,7 @@ void train(TrainArgs &args, nn::Module &model, Device device,
       LOGD("Train Epoch: %d [%d/%d (%.0f%%)] Loss: %.6f, Elapsed: %.2fs", epoch,
            currDataCnt, totalDataCnt, 100.f * currDataCnt / (float)totalDataCnt,
            loss.item(), elapsed);
-
-      if (args.dryRun) {
+      if (args.at("dryRun")) {
         break;
       }
     }
@@ -174,8 +181,8 @@ void test(nn::Module &model, Device device, data::DataLoader &dataLoader) {
   auto correct = 0;
   withNoGrad {
     for (auto [batchIdx, batch] : dataLoader) {
-      auto &data = batch[0].to(device);
-      auto &target = batch[1].to(device);
+    auto &data = batch[0].to(device);//.to(Dtype::float16);
+    auto &target = batch[1].to(device);
       auto output = model(data);
       testLoss += Function::nllloss(output, target, SUM).item();
       auto pred = output.data().argmax(1, true);
@@ -197,13 +204,13 @@ void demo_mnist() {
   LOGD("demo_mnist ...");
   Timer timer;
   timer.start();
-
-  TrainArgs args;
-
-  manualSeed(args.seed);
-
-  auto useCuda = (!args.noCuda) && Tensor::deviceAvailable(Device::CUDA);
+  auto workdir = currentPath();
+  fs::path subsir = "..\\config\\mnist.json";
+  auto args = loadConfig((workdir / subsir).string());
+  manualSeed(args.at("seed"));
+  auto useCuda = (!args.at("noCuda")) && Tensor::deviceAvailable(Device::CUDA);
   Device device = useCuda ? Device::CUDA : Device::CPU;
+  LOGD("Train with device: %s", useCuda ? "CUDA" : "CPU");
 
   auto transform = std::make_shared<data::transforms::Compose>(
       data::transforms::Normalize(0.1307f, 0.3081f));
@@ -219,27 +226,41 @@ void demo_mnist() {
     return;
   }
 
-  auto trainDataloader = data::DataLoader(trainDataset, args.batchSize, true);
-  auto testDataloader = data::DataLoader(testDataset, args.testBatchSize, true);
-
+  auto trainDataloader = data::DataLoader(trainDataset, args.at("batchSize"), true, false);
+  auto testDataloader = data::DataLoader(testDataset, args.at("testBatchSize"), true, false);
   auto model = Net();
-  model.to(device);
+  auto optimizer = optim::AdaDelta(model.parameters(), args.at("lr"));
+  auto scheduler = optim::lr_scheduler::StepLR(optimizer, 1, args.at("gamma"));
 
-  auto optimizer = optim::AdaDelta(model.parameters(), args.lr);
-  auto scheduler = optim::lr_scheduler::StepLR(optimizer, 1, args.gamma);
-
-  for (auto epoch = 1; epoch < args.epochs + 1; epoch++) {
+  for (auto epoch = 1; epoch < args.at("epochs").get<int>() + 1; epoch++) {
     train(args, model, device, trainDataloader, optimizer, epoch);
     test(model, device, testDataloader);
     scheduler.step();
   }
 
-  if (args.saveModel) {
+  if (args.at("saveModel")) {
     save(model, "mnist_cnn.model");
   }
 
   timer.mark();
   LOGD("Total Time cost: %lld ms", timer.elapseMillis());
+}
+```
+
+In config/minst.json
+
+```
+{
+  "batchSize": 64,
+  "testBatchSize": 1000,
+  "epochs": 3,
+  "lr": 0.1,
+  "gamma": 0.7,
+  "noCuda": false,
+  "dryRun": false,
+  "seed": 1,
+  "logInterval": 10,
+  "saveModel": false
 }
 ```
 
@@ -263,7 +284,11 @@ ctest
 ```
 
 ## Dependencies
+- `CUDA` (optional for nvidia CUDA support)
 - `OpenBLAS` (optional for `gemm` on CPU mode) [https://github.com/OpenMathLib/OpenBLAS](https://github.com/OpenMathLib/OpenBLAS)
+- `OpenCV`   (optional for `process(cv::Mat& input)` to read picture by opencv) [https://opencv.org/releases]
+- `nlohmann/json` (to read json config) [https://github.com/nlohmann/json.git]
+- `cuDNN` (optional for speed up `Conv` and `BatchNorm`) 
 
 ## Acknowledgments
 

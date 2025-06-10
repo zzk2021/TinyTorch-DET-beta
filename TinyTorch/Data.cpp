@@ -161,9 +161,6 @@ std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
   width_ = image_t.shape()[2];
   height_ = image_t.shape()[1];
 
-  float width_ratio = static_cast<float>(width_) / original_width;
-  float height_ratio = static_cast<float>(height_) / original_height;
-
   std::vector<std::vector<float>> labels;
   std::string token;
   std::vector<float> box;
@@ -171,10 +168,6 @@ std::vector<Tensor> DatasetYOLO::getItem(size_t idx) {
     std::string value;
     box.push_back(std::stof(token));
     if (box.size() == 5) { // class_id, x_center, y_center, width, height
-      box[1] *= width_ratio;  // x_center
-      box[2] *= height_ratio; // y_center
-      box[3] *= width_ratio;  // width
-      box[4] *= height_ratio; // height
       labels.push_back(box);
     }
   }
